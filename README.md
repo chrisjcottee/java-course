@@ -4,12 +4,15 @@ This your copy of the code for the java-course. The course itself is located in 
 
 ## Weight Training Tracker
 
-`weight-tracker/` contains a single-page PWA for logging weight training sets.
+`weight-tracker/` contains a single-page PWA for following a structured weight-training program.
 
-- Enter exercise, reps, and weight; tap **Add Set** to log each set as you go.
-- Tap **Finish Workout** to save the day's sets to history.
-- View past workouts under the **History** tab. Data is stored in browser localStorage.
-- Works offline once installed (service worker caches the app shell).
+- **Build your program** once: add days (Push, Pull, Legs, …) with exercises, target sets, reps, and weight.
+- **Today** shows the next scheduled day with a single *Start Workout* button.
+- During a workout, each set is one row: enter weight & reps → tap ✓ → next set is focused. Previous session values are shown as a one-tap "copy" chip.
+- Exercises auto-mark complete when all sets are logged; the day auto-completes when all exercises are done; the program completes when every day is done.
+- **Gamification**: XP per set/exercise/day/program, level (Lv ⌊√(XP/100)⌋), and a streak that counts consecutive completed program days.
+- **History** tab keeps every workout. **Program** tab lets you view or edit the plan.
+- Data is stored in browser `localStorage`. Works offline once installed (service worker caches the app shell).
 
 ### Run locally
 
