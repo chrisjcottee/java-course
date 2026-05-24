@@ -377,7 +377,7 @@
   }
   .ex-editor-row {
     display: grid;
-    grid-template-columns: 1fr 60px 60px 70px 32px;
+    grid-template-columns: 1fr 70px 70px 32px;
     gap: 6px;
     align-items: center;
   }
@@ -393,7 +393,7 @@
   }
   .ex-editor-head {
     display: grid;
-    grid-template-columns: 1fr 60px 60px 70px 32px;
+    grid-template-columns: 1fr 70px 70px 32px;
     gap: 6px;
     font-size: 11px;
     color: var(--text-faint);
@@ -581,11 +581,11 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v4 · weekly';
+const APP_VERSION = 'v5 · no preset weight';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
-  program: null,        // { name, weeks: 8, template: [{ name, exercises: [{ name, sets, reps, weight }] }] }
+  program: null,        // { name, weeks: 8, template: [{ name, exercises: [{ name, sets, reps }] }] }
   sessions: [],         // [{ date, weekIndex, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }] }] }]
   active: null,         // { weekIndex, dayIndex, dayName, startedAt, exercises: [...] }
   stats: { xp: 0, streak: 0, lastDayCompleteDate: null },
@@ -793,7 +793,7 @@ Views.setup = function() {
   }
   return `
     <h1>${state.program ? 'Edit Program' : 'Build Your Program'}</h1>
-    <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Pick how many weeks the program runs, then add the days that repeat each week (e.g. Push, Pull, Legs). For each day, add exercises with target sets, reps, and weight.'}</p>
+    <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Pick how many weeks the program runs, then add the days that repeat each week (e.g. Push, Pull, Legs). For each day, add exercises with target sets and reps. You\'ll log the weight during each workout.'}</p>
 
     <div style="margin-top:20px;">
       <label class="field">
@@ -825,7 +825,7 @@ function makeDay() {
   return { name: '', exercises: [makeEx()] };
 }
 function makeEx() {
-  return { name: '', sets: 3, reps: 8, weight: 20 };
+  return { name: '', sets: 3, reps: 8 };
 }
 
 function dayEditorHtml(day, i) {
@@ -836,7 +836,7 @@ function dayEditorHtml(day, i) {
         ${setupDraft.days.length > 1 ? `<button class="btn icon" data-act="rm-day" title="Remove day">×</button>` : ''}
       </div>
       <div class="ex-editor-head">
-        <span>Exercise</span><span>Sets</span><span>Reps</span><span>Weight</span><span></span>
+        <span>Exercise</span><span>Sets</span><span>Reps</span><span></span>
       </div>
       <div class="exercises">
         ${day.exercises.map((e, j) => exEditorHtml(e, j)).join('')}
@@ -853,7 +853,6 @@ function exEditorHtml(ex, j) {
         <input type="text" class="exname" data-f="name" value="${esc(ex.name)}" placeholder="Exercise name">
         <input type="number" data-f="sets" value="${ex.sets}" min="1" max="20" inputmode="numeric">
         <input type="number" data-f="reps" value="${ex.reps}" min="1" max="100" inputmode="numeric">
-        <input type="number" data-f="weight" value="${ex.weight}" min="0" step="0.5" inputmode="decimal">
         <button class="remove" data-act="rm-ex" title="Remove">×</button>
       </div>
     </div>
@@ -945,7 +944,6 @@ function dayCardHtml(day, i) {
           <div class="row" style="padding:3px 0; font-size:14px;">
             <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
             <span style="flex:1;">${esc(e.name)}</span>
-            <span class="faint mono">${fmtNum(e.weight)} kg</span>
           </div>
         `).join('')}
       </div>
@@ -995,7 +993,7 @@ Views.program = function() {
             ${d.exercises.map(e => `
               <div class="ex-line">
                 <span class="nm">${esc(e.name)}</span>
-                <span class="tgt">${e.sets} × ${e.reps} @ ${fmtNum(e.weight)} kg</span>
+                <span class="tgt">${e.sets} × ${e.reps}</span>
               </div>
             `).join('')}
           </div>
@@ -1114,7 +1112,7 @@ function exerciseCardHtml(ex, i, currentExIdx) {
         <div class="name">${esc(ex.name)}</div>
         <div class="progress mono">${ex.sets.length}/${ex.targetSets}</div>
       </div>
-      <div class="ex-target">Target: ${ex.targetSets} × ${ex.targetReps} @ ${fmtNum(ex.targetWeight)} kg</div>
+      <div class="ex-target">Target: ${ex.targetSets} × ${ex.targetReps}</div>
       <div class="sets">
         ${Array.from({length: ex.targetSets}, (_, si) => setRowHtml(ex, si, isCurrent)).join('')}
       </div>
@@ -1452,8 +1450,7 @@ function saveSetup() {
         .map(e => ({
           name: e.name.trim(),
           sets: Math.max(1, parseInt(e.sets) || 1),
-          reps: Math.max(1, parseInt(e.reps) || 1),
-          weight: Math.max(0, parseFloat(e.weight) || 0)
+          reps: Math.max(1, parseInt(e.reps) || 1)
         }))
     }))
     .filter(d => d.exercises.length > 0);
@@ -1503,7 +1500,6 @@ function startWorkout(dayIndex) {
       name: e.name,
       targetSets: e.sets,
       targetReps: e.reps,
-      targetWeight: e.weight,
       sets: []
     }))
   };
