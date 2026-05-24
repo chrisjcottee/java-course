@@ -529,6 +529,14 @@
   .program-summary .ex-line:last-child { border-bottom: none; }
   .program-summary .ex-line .nm { font-weight: 500; }
   .program-summary .ex-line .tgt { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  .version-stamp {
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11px;
+    margin: 32px 0 8px;
+    font-variant-numeric: tabular-nums;
+  }
 </style>
 </head>
 <body>
@@ -543,7 +551,9 @@
 'use strict';
 
 /* ---------- State ---------- */
+const APP_VERSION = 'v3 · 2026-05-21';
 const STORAGE_KEY = 'wt-state-v2';
+let saveErrorShown = false;
 const DEFAULT_STATE = {
   program: null,        // { name, days: [{ name, exercises: [{ name, sets, reps, weight }] }] }
   sessions: [],         // [{ date, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }] }] }]
@@ -567,7 +577,38 @@ function load() {
 }
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Verify it actually persisted (some browsers silently accept then drop)
+    const check = localStorage.getItem(STORAGE_KEY);
+    if (!check) throw new Error('write succeeded but read returned empty');
+    return true;
+  } catch (e) {
+    console.error('save failed', e);
+    if (!saveErrorShown) {
+      saveErrorShown = true;
+      showModal({
+        title: 'Could not save your data',
+        body: 'Your browser is blocking storage. Common causes: Private/Incognito mode, "Block All Cookies", or full storage. Your changes won\'t persist across reloads until this is fixed.\n\nError: ' + (e.message || String(e)),
+        confirmText: 'OK',
+        hideCancel: true,
+        onConfirm: closeModal
+      });
+    }
+    return false;
+  }
+}
+
+function storageWorks() {
+  try {
+    const k = '__wt_test__';
+    localStorage.setItem(k, '1');
+    const ok = localStorage.getItem(k) === '1';
+    localStorage.removeItem(k);
+    return ok;
+  } catch (e) {
+    return false;
+  }
 }
 
 function setState(patch) {
@@ -645,7 +686,11 @@ function render() {
   const view = pickView();
   const app = $('#app');
   const tabs = $('#tabs');
-  app.innerHTML = (Views[view] || Views.today)();
+  let body = (Views[view] || Views.today)();
+  if (view !== 'workout') {
+    body += `<div class="version-stamp">${APP_VERSION}</div>`;
+  }
+  app.innerHTML = body;
   app.classList.toggle('fullscreen', view === 'workout');
   const showTabs = view === 'today' || view === 'program' || view === 'history';
   tabs.hidden = !showTabs;
@@ -1455,6 +1500,16 @@ function renderModal() {
 /* ---------- Boot ---------- */
 bindGlobalEvents();
 render();
+
+if (!storageWorks()) {
+  showModal({
+    title: 'Storage is disabled',
+    body: 'This browser isn\'t letting the app save anything to local storage. The most common cause is Private/Incognito mode. Open this URL in a regular browser tab and add it to your home screen from there.',
+    confirmText: 'OK',
+    hideCancel: true,
+    onConfirm: closeModal
+  });
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -1,4 +1,4 @@
-const CACHE = 'weight-tracker-v2';
+const CACHE = 'weight-tracker-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -25,14 +25,37 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first for the HTML shell so updates pick up on reload.
+// Cache-first for static assets so they're fast and work offline.
+function isHtmlRequest(request) {
+  if (request.mode === 'navigate') return true;
+  const accept = request.headers.get('accept') || '';
+  return accept.includes('text/html');
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const req = event.request;
+
+  if (isHtmlRequest(req)) {
+    event.respondWith(
+      fetch(req)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(req, copy));
+          return response;
+        })
+        .catch(() => caches.match(req).then((c) => c || caches.match('./')))
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(req).then((cached) => {
       if (cached) return cached;
-      return fetch(event.request).then((response) => {
+      return fetch(req).then((response) => {
         const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        caches.open(CACHE).then((cache) => cache.put(req, copy));
         return response;
       }).catch(() => cached);
     })
