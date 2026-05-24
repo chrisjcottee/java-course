@@ -529,6 +529,44 @@
   .program-summary .ex-line:last-child { border-bottom: none; }
   .program-summary .ex-line .nm { font-weight: 500; }
   .program-summary .ex-line .tgt { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  .week-pip {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .week-pip.done { background: var(--success); color: white; border-color: var(--success); }
+  .week-pip.current { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .day-check {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--success);
+    color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .card-next {
+    border: 2px solid var(--accent);
+    box-shadow: 0 1px 2px rgba(0,113,227,0.08), 0 4px 12px rgba(0,113,227,0.12);
+  }
+
+  .version-stamp {
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11px;
+    margin: 32px 0 8px;
+    font-variant-numeric: tabular-nums;
+  }
 </style>
 </head>
 <body>
@@ -543,15 +581,17 @@
 'use strict';
 
 /* ---------- State ---------- */
+const APP_VERSION = 'v4 · weekly';
 const STORAGE_KEY = 'wt-state-v2';
+let saveErrorShown = false;
 const DEFAULT_STATE = {
-  program: null,        // { name, days: [{ name, exercises: [{ name, sets, reps, weight }] }] }
-  sessions: [],         // [{ date, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }] }] }]
-  active: null,         // { dayIndex, dayName, startedAt, exercises: [{ name, targetSets, targetReps, targetWeight, sets: [...] }] }
+  program: null,        // { name, weeks: 8, template: [{ name, exercises: [{ name, sets, reps, weight }] }] }
+  sessions: [],         // [{ date, weekIndex, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }] }] }]
+  active: null,         // { weekIndex, dayIndex, dayName, startedAt, exercises: [...] }
   stats: { xp: 0, streak: 0, lastDayCompleteDate: null },
-  currentRun: { completedDayCount: 0, startedAt: null },
+  currentRun: { startedAt: null, weekIndex: 0, completedDayIndices: [] },
   tab: 'today',
-  celebration: null     // { type: 'workout'|'program', data: { xpEarned, ... } }
+  celebration: null     // { type: 'workout', dayName, weekIndex, setCount, volume, xpEarned, leveledUp, fullyComplete, weekComplete, programComplete }
 };
 
 let state = load();
@@ -561,13 +601,77 @@ let modal = null;
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return Object.assign(structuredClone(DEFAULT_STATE), JSON.parse(raw));
+    if (raw) return migrate(Object.assign(structuredClone(DEFAULT_STATE), JSON.parse(raw)));
   } catch (e) { console.warn('load failed', e); }
   return structuredClone(DEFAULT_STATE);
 }
 
+function migrate(s) {
+  if (!s.program) return s;
+  // Old program shape: { name, days: [...] } → { name, weeks: 1, template: [...] }
+  if (s.program.days && !s.program.template) {
+    s.program = {
+      name: s.program.name,
+      weeks: 1,
+      template: s.program.days
+    };
+  }
+  // Normalize currentRun shape
+  const cr = s.currentRun || {};
+  const newCR = {
+    startedAt: cr.startedAt || Date.now(),
+    weekIndex: typeof cr.weekIndex === 'number' ? cr.weekIndex : 0,
+    completedDayIndices: Array.isArray(cr.completedDayIndices) ? cr.completedDayIndices : []
+  };
+  // Migrate old completedDayCount → weekIndex/completedDayIndices
+  if (typeof cr.completedDayCount === 'number' && !Array.isArray(cr.completedDayIndices)) {
+    const dayCount = s.program.template.length;
+    const fullWeeks = Math.floor(cr.completedDayCount / dayCount);
+    const remainder = cr.completedDayCount % dayCount;
+    newCR.weekIndex = fullWeeks;
+    newCR.completedDayIndices = Array.from({ length: remainder }, (_, i) => i);
+  }
+  s.currentRun = newCR;
+  // Ensure sessions have weekIndex
+  if (Array.isArray(s.sessions)) {
+    s.sessions.forEach(sess => { if (sess.weekIndex == null) sess.weekIndex = 0; });
+  }
+  return s;
+}
+
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Verify it actually persisted (some browsers silently accept then drop)
+    const check = localStorage.getItem(STORAGE_KEY);
+    if (!check) throw new Error('write succeeded but read returned empty');
+    return true;
+  } catch (e) {
+    console.error('save failed', e);
+    if (!saveErrorShown) {
+      saveErrorShown = true;
+      showModal({
+        title: 'Could not save your data',
+        body: 'Your browser is blocking storage. Common causes: Private/Incognito mode, "Block All Cookies", or full storage. Your changes won\'t persist across reloads until this is fixed.\n\nError: ' + (e.message || String(e)),
+        confirmText: 'OK',
+        hideCancel: true,
+        onConfirm: closeModal
+      });
+    }
+    return false;
+  }
+}
+
+function storageWorks() {
+  try {
+    const k = '__wt_test__';
+    localStorage.setItem(k, '1');
+    const ok = localStorage.getItem(k) === '1';
+    localStorage.removeItem(k);
+    return ok;
+  } catch (e) {
+    return false;
+  }
 }
 
 function setState(patch) {
@@ -624,13 +728,30 @@ function findLastSet(exerciseName, setIndex) {
   return null;
 }
 
-function currentDayIndex() {
-  if (!state.program) return 0;
-  return Math.min(state.currentRun.completedDayCount, state.program.days.length - 1);
+function dayIsDoneThisWeek(dayIndex) {
+  return state.currentRun.completedDayIndices.includes(dayIndex);
+}
+
+function nextDayIndex() {
+  if (!state.program) return -1;
+  for (let i = 0; i < state.program.template.length; i++) {
+    if (!dayIsDoneThisWeek(i)) return i;
+  }
+  return -1;
+}
+
+function weekIsComplete() {
+  return state.program && state.currentRun.completedDayIndices.length >= state.program.template.length;
 }
 
 function programIsComplete() {
-  return state.program && state.currentRun.completedDayCount >= state.program.days.length;
+  return state.program && state.currentRun.weekIndex >= state.program.weeks;
+}
+
+function sessionForDayThisWeek(dayIndex) {
+  return state.sessions.slice().reverse().find(s =>
+    s.weekIndex === state.currentRun.weekIndex && s.dayIndex === dayIndex
+  );
 }
 
 /* ---------- Routing ---------- */
@@ -645,7 +766,11 @@ function render() {
   const view = pickView();
   const app = $('#app');
   const tabs = $('#tabs');
-  app.innerHTML = (Views[view] || Views.today)();
+  let body = (Views[view] || Views.today)();
+  if (view !== 'workout') {
+    body += `<div class="version-stamp">${APP_VERSION}</div>`;
+  }
+  app.innerHTML = body;
   app.classList.toggle('fullscreen', view === 'workout');
   const showTabs = view === 'today' || view === 'program' || view === 'history';
   tabs.hidden = !showTabs;
@@ -663,21 +788,26 @@ const Views = {};
 Views.setup = function() {
   if (!setupDraft) {
     setupDraft = state.program
-      ? structuredClone(state.program)
-      : { name: 'My Program', days: [makeDay()] };
+      ? { name: state.program.name, weeks: state.program.weeks, days: structuredClone(state.program.template) }
+      : { name: 'My Program', weeks: 8, days: [makeDay()] };
   }
   return `
     <h1>${state.program ? 'Edit Program' : 'Build Your Program'}</h1>
-    <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Add the days of your weekly program. Each day, add the exercises you\'ll do with target sets, reps, and weight.'}</p>
+    <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Pick how many weeks the program runs, then add the days that repeat each week (e.g. Push, Pull, Legs). For each day, add exercises with target sets, reps, and weight.'}</p>
 
     <div style="margin-top:20px;">
       <label class="field">
         <span class="lbl">Program Name</span>
-        <input type="text" id="prog-name" value="${esc(setupDraft.name)}" placeholder="e.g. 12-week Push/Pull/Legs">
+        <input type="text" id="prog-name" value="${esc(setupDraft.name)}" placeholder="e.g. 8-week Push/Pull/Legs">
+      </label>
+      <label class="field" style="max-width:160px;">
+        <span class="lbl">Number of Weeks</span>
+        <input type="number" id="prog-weeks" value="${setupDraft.weeks}" min="1" max="52" inputmode="numeric">
       </label>
     </div>
 
-    <h2>Days</h2>
+    <h2>Days each week</h2>
+    <p class="subtle" style="margin-top:-8px;">These days repeat every week. You can do them in any order.</p>
     <div id="days">
       ${setupDraft.days.map((d, i) => dayEditorHtml(d, i)).join('')}
     </div>
@@ -734,69 +864,102 @@ Views.today = function() {
   if (programIsComplete()) {
     return programCompleteView();
   }
-  const day = state.program.days[currentDayIndex()];
   const lvl = levelFromXp(state.stats.xp);
-  const nextLvlXp = xpForLevel(lvl + 1);
-  const lvlProgress = state.stats.xp - xpForLevel(lvl);
-  const lvlNeed = nextLvlXp - xpForLevel(lvl);
+  const week = state.currentRun.weekIndex;
+  const totalWeeks = state.program.weeks;
+  const template = state.program.template;
+  const doneCount = state.currentRun.completedDayIndices.length;
+  const remainingCount = template.length - doneCount;
+  const weekProgress = (doneCount / template.length * 100).toFixed(0);
+  const programProgress = (week / totalWeeks * 100).toFixed(0);
 
   return `
     <h1>Today</h1>
-    <p class="subtle">${esc(state.program.name)}</p>
+    <p class="subtle">${esc(state.program.name)} · Week ${week + 1} of ${totalWeeks}</p>
 
     <div class="stats">
       <div class="stat"><div class="v">🔥 ${state.stats.streak}</div><div class="k">Streak</div></div>
       <div class="stat"><div class="v">Lv ${lvl}</div><div class="k">${state.stats.xp} XP</div></div>
-      <div class="stat"><div class="v">${state.currentRun.completedDayCount}/${state.program.days.length}</div><div class="k">Days Done</div></div>
+      <div class="stat"><div class="v">${doneCount}/${template.length}</div><div class="k">This Week</div></div>
     </div>
 
-    <div class="card">
+    <h2>This Week</h2>
+    <div class="progress-bar" style="margin-bottom:14px;">
+      <div class="fill" style="width:${weekProgress}%"></div>
+    </div>
+
+    <div>
+      ${template.map((d, i) => dayCardHtml(d, i)).join('')}
+    </div>
+
+    <h2 style="margin-top:24px;">Program Progress</h2>
+    <p class="subtle" style="margin-top:-8px;">Week ${week + 1} of ${totalWeeks} · ${programProgress}% complete</p>
+    <div class="progress-bar" style="margin-bottom:14px;">
+      <div class="fill" style="width:${programProgress}%"></div>
+    </div>
+    <div class="row wrap" style="gap:6px;">
+      ${Array.from({length: totalWeeks}, (_, i) => {
+        const done = i < week;
+        const cur = i === week;
+        return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
+      }).join('')}
+    </div>
+  `;
+};
+
+function dayCardHtml(day, i) {
+  const done = dayIsDoneThisWeek(i);
+  const isNext = !done && nextDayIndex() === i;
+  const session = done ? sessionForDayThisWeek(i) : null;
+  const exCount = day.exercises.length;
+  const setCount = day.exercises.reduce((n, e) => n + e.sets, 0);
+
+  if (done) {
+    return `
+      <div class="card compact" style="opacity:0.7;">
+        <div class="row between">
+          <div class="row" style="gap:10px;">
+            <div class="day-check">✓</div>
+            <div>
+              <h3>${esc(day.name)}</h3>
+              <div class="faint">${session ? 'Done ' + fmtDate(session.date) : 'Done'}</div>
+            </div>
+          </div>
+          <span class="badge success">Done</span>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card ${isNext ? 'card-next' : ''}" data-day-card="${i}">
       <div class="row between" style="margin-bottom:6px;">
         <div>
-          <div class="subtle">Day ${currentDayIndex() + 1} of ${state.program.days.length}</div>
-          <h3>${esc(day.name || 'Day ' + (currentDayIndex() + 1))}</h3>
+          ${isNext ? '<div class="subtle">Next up</div>' : ''}
+          <h3>${esc(day.name)}</h3>
         </div>
-        <span class="badge">${day.exercises.length} exercise${day.exercises.length === 1 ? '' : 's'}</span>
+        <span class="badge">${exCount} ex · ${setCount} sets</span>
       </div>
-      <div style="margin:14px 0 4px;">
+      <div style="margin:10px 0 4px;">
         ${day.exercises.map(e => `
-          <div class="row" style="padding:4px 0; font-size:14px;">
+          <div class="row" style="padding:3px 0; font-size:14px;">
             <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
             <span style="flex:1;">${esc(e.name)}</span>
             <span class="faint mono">${fmtNum(e.weight)} kg</span>
           </div>
         `).join('')}
       </div>
-      <button class="btn" id="start-workout" style="margin-top:14px;">Start Workout</button>
-    </div>
-
-    <h2>Program Progress</h2>
-    <div class="progress-bar" style="margin-bottom:14px;">
-      <div class="fill" style="width:${(state.currentRun.completedDayCount / state.program.days.length * 100).toFixed(0)}%"></div>
-    </div>
-
-    <div class="day-list">
-      ${state.program.days.map((d, i) => {
-        const done = i < state.currentRun.completedDayCount;
-        const cur = i === currentDayIndex() && !done;
-        return `
-          <div class="day-item ${done ? 'done' : ''} ${cur ? 'current' : ''}">
-            <div class="num">${done ? '✓' : (i + 1)}</div>
-            <div class="name">${esc(d.name || 'Day ' + (i + 1))}</div>
-            <div class="meta">${d.exercises.length} ex</div>
-          </div>
-        `;
-      }).join('')}
+      <button class="btn ${isNext ? '' : 'secondary'}" data-start-day="${i}" style="margin-top:12px;">Start ${esc(day.name)}</button>
     </div>
   `;
-};
+}
 
 function programCompleteView() {
   return `
     <div class="celebrate">
       <div class="big">🏆</div>
       <h1>Program Complete!</h1>
-      <p class="sub">You finished all ${state.program.days.length} days of ${esc(state.program.name)}.</p>
+      <p class="sub">You finished all ${state.program.weeks} weeks of ${esc(state.program.name)}.</p>
       <div class="stats" style="max-width:320px; margin:24px auto;">
         <div class="stat"><div class="v">${state.stats.xp}</div><div class="k">Total XP</div></div>
         <div class="stat"><div class="v">Lv ${levelFromXp(state.stats.xp)}</div><div class="k">Level</div></div>
@@ -809,21 +972,25 @@ function programCompleteView() {
 }
 
 Views.program = function() {
+  const p = state.program;
   return `
     <h1>Program</h1>
-    <p class="subtle">${esc(state.program.name)}</p>
+    <p class="subtle">${esc(p.name)}</p>
 
     <div class="card">
       <div class="row between" style="margin-bottom:10px;">
-        <h3>${state.program.days.length} day${state.program.days.length === 1 ? '' : 's'}</h3>
+        <div>
+          <h3>${p.weeks} week${p.weeks === 1 ? '' : 's'} · ${p.template.length} day${p.template.length === 1 ? '' : 's'} each week</h3>
+          <div class="subtle">Currently on Week ${Math.min(state.currentRun.weekIndex + 1, p.weeks)} of ${p.weeks}</div>
+        </div>
         <button class="btn small secondary" id="edit-program">Edit</button>
       </div>
       <div class="program-summary">
-        ${state.program.days.map((d, i) => `
+        ${p.template.map((d, i) => `
           <div style="margin-top:${i === 0 ? '0' : '16px'};">
             <div class="row between" style="margin-bottom:6px;">
               <strong>${i + 1}. ${esc(d.name || 'Day ' + (i + 1))}</strong>
-              ${i < state.currentRun.completedDayCount ? `<span class="badge success">Done</span>` : (i === currentDayIndex() ? `<span class="badge">Next</span>` : '')}
+              ${dayIsDoneThisWeek(i) ? `<span class="badge success">Done this week</span>` : ''}
             </div>
             ${d.exercises.map(e => `
               <div class="ex-line">
@@ -862,7 +1029,7 @@ Views.history = function() {
           <span class="ttl">${esc(s.dayName || 'Day ' + (s.dayIndex + 1))}</span>
           <span class="subtle">${fmtDate(s.date)}</span>
         </div>
-        <div class="subtle mono">${setCount(s.exercises)} sets · ${fmtNum(totalVolume(s.exercises))} kg total volume</div>
+        <div class="subtle mono">Week ${(s.weekIndex ?? 0) + 1} · ${setCount(s.exercises)} sets · ${fmtNum(totalVolume(s.exercises))} kg total volume</div>
         <details>
           <summary>View details</summary>
           ${s.exercises.map(e => `
@@ -893,7 +1060,7 @@ Views.workout = function() {
     <div class="workout-top">
       <div class="row between">
         <div>
-          <div class="subtle">Day ${a.dayIndex + 1} · ${esc(a.dayName)}</div>
+          <div class="subtle">Week ${a.weekIndex + 1} · ${esc(a.dayName)}</div>
         </div>
         <button class="btn icon" id="close-workout" title="Quit">×</button>
       </div>
@@ -1003,25 +1170,44 @@ function setRowHtml(ex, si, isCurrentEx) {
 
 Views.celebration = function() {
   const c = state.celebration;
-  if (c.type === 'workout') {
-    const headline = c.fullyComplete ? `${esc(c.dayName)} Done!` : 'Workout Saved';
-    const icon = c.fullyComplete ? '✓' : '◐';
-    const iconBg = c.fullyComplete ? 'var(--success)' : 'var(--warn)';
-    return `
-      <div class="celebrate">
-        <div class="big" style="background:${iconBg};">${icon}</div>
-        <h1>${headline}</h1>
-        <p class="sub">${c.setCount} sets · ${fmtNum(c.volume)} kg total volume${c.fullyComplete ? '' : ' · day not yet complete'}</p>
-        <div class="reward-row">
-          <div class="reward"><span class="label">XP Earned</span>+${c.xpEarned}</div>
-          ${c.fullyComplete ? `<div class="reward"><span class="label">Streak</span>🔥 ${state.stats.streak}</div>` : ''}
-        </div>
-        ${c.leveledUp ? `<div class="reward" style="display:inline-block; margin:8px auto 20px; background: var(--accent); color: white;"><span class="label" style="color:rgba(255,255,255,0.8);">Level Up!</span>Level ${levelFromXp(state.stats.xp)}</div>` : ''}
-        <button class="btn" id="celebrate-continue" style="max-width:280px; margin:24px auto 0;">Continue</button>
-      </div>
-    `;
+  if (c.type !== 'workout') return '';
+
+  let headline, icon, iconBg, sub;
+  if (c.programComplete) {
+    headline = 'Program Complete!';
+    icon = '🏆';
+    iconBg = 'var(--accent)';
+    sub = `You finished all ${state.program.weeks} weeks of ${esc(state.program.name)}.`;
+  } else if (c.weekComplete) {
+    headline = `Week ${c.weekIndex + 1} Done!`;
+    icon = '🎉';
+    iconBg = 'var(--accent)';
+    sub = `All ${state.program.template.length} days complete · ${c.setCount} sets · ${fmtNum(c.volume)} kg`;
+  } else if (c.fullyComplete) {
+    headline = `${esc(c.dayName)} Done!`;
+    icon = '✓';
+    iconBg = 'var(--success)';
+    sub = `Week ${c.weekIndex + 1} · ${c.setCount} sets · ${fmtNum(c.volume)} kg total volume`;
+  } else {
+    headline = 'Workout Saved';
+    icon = '◐';
+    iconBg = 'var(--warn)';
+    sub = `${c.setCount} sets · ${fmtNum(c.volume)} kg · day not yet complete`;
   }
-  return '';
+
+  return `
+    <div class="celebrate">
+      <div class="big" style="background:${iconBg};">${icon}</div>
+      <h1>${headline}</h1>
+      <p class="sub">${sub}</p>
+      <div class="reward-row">
+        <div class="reward"><span class="label">XP Earned</span>+${c.xpEarned}</div>
+        ${c.fullyComplete ? `<div class="reward"><span class="label">Streak</span>🔥 ${state.stats.streak}</div>` : ''}
+      </div>
+      ${c.leveledUp ? `<div class="reward" style="display:inline-block; margin:8px auto 20px; background: var(--accent); color: white;"><span class="label" style="color:rgba(255,255,255,0.8);">Level Up!</span>Level ${levelFromXp(state.stats.xp)}</div>` : ''}
+      <button class="btn" id="celebrate-continue" style="max-width:280px; margin:24px auto 0;">${c.programComplete ? 'See Program' : 'Continue'}</button>
+    </div>
+  `;
 };
 
 /* ---------- Event handling ---------- */
@@ -1078,17 +1264,17 @@ function onClick(e) {
   }
 
   // Today
-  if (e.target.id === 'start-workout') {
-    startWorkout();
+  if (e.target.dataset.startDay != null) {
+    startWorkout(parseInt(e.target.dataset.startDay, 10));
     return;
   }
   if (e.target.id === 'restart-program') {
     showModal({
       title: 'Start program over?',
-      body: 'Your day progress will reset to Day 1. History stays intact.',
+      body: 'Your week progress will reset to Week 1. History stays intact.',
       confirmText: 'Restart',
       onConfirm: () => {
-        state.currentRun = { completedDayCount: 0, startedAt: Date.now() };
+        state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
         closeModal();
         setState({});
       }
@@ -1098,7 +1284,11 @@ function onClick(e) {
 
   // Program tab
   if (e.target.id === 'edit-program') {
-    setupDraft = structuredClone(state.program);
+    setupDraft = {
+      name: state.program.name,
+      weeks: state.program.weeks,
+      days: structuredClone(state.program.template)
+    };
     state.editing = true;
     save();
     render();
@@ -1199,6 +1389,10 @@ function onInput(e) {
     setupDraft.name = e.target.value;
     return;
   }
+  if (e.target.id === 'prog-weeks') {
+    setupDraft.weeks = Math.max(1, parseInt(e.target.value) || 1);
+    return;
+  }
   if (e.target.classList.contains('day-name')) {
     const di = +e.target.closest('[data-day]').dataset.day;
     setupDraft.days[di].name = e.target.value;
@@ -1277,17 +1471,16 @@ function saveSetup() {
 
   cleanDays.forEach((d, i) => { if (!d.name) d.name = 'Day ' + (i + 1); });
 
+  const weeks = Math.max(1, parseInt(setupDraft.weeks) || 1);
   const wasEditing = state.editing;
-  state.program = { name: setupDraft.name, days: cleanDays };
+  state.program = { name: setupDraft.name, weeks, template: cleanDays };
   state.editing = false;
   if (!wasEditing) {
-    state.currentRun = { completedDayCount: 0, startedAt: Date.now() };
+    state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
   } else {
-    // Cap completed day count if program shrunk
-    state.currentRun.completedDayCount = Math.min(
-      state.currentRun.completedDayCount,
-      cleanDays.length
-    );
+    // Cap weekIndex and completedDayIndices if program shrunk
+    state.currentRun.weekIndex = Math.min(state.currentRun.weekIndex, weeks);
+    state.currentRun.completedDayIndices = state.currentRun.completedDayIndices.filter(i => i < cleanDays.length);
   }
   setupDraft = null;
   state.tab = 'today';
@@ -1296,13 +1489,15 @@ function saveSetup() {
 }
 
 /* ---------- Workout actions ---------- */
-function startWorkout() {
+function startWorkout(dayIndex) {
   if (programIsComplete()) return;
-  const idx = currentDayIndex();
-  const day = state.program.days[idx];
+  if (dayIsDoneThisWeek(dayIndex)) return;
+  const day = state.program.template[dayIndex];
+  if (!day) return;
   state.active = {
-    dayIndex: idx,
-    dayName: day.name || ('Day ' + (idx + 1)),
+    weekIndex: state.currentRun.weekIndex,
+    dayIndex,
+    dayName: day.name || ('Day ' + (dayIndex + 1)),
     startedAt: Date.now(),
     exercises: day.exercises.map(e => ({
       name: e.name,
@@ -1355,6 +1550,7 @@ function finishWorkout(opts = {}) {
 
   const session = {
     date: Date.now(),
+    weekIndex: a.weekIndex,
     dayIndex: a.dayIndex,
     dayName: a.dayName,
     durationMs: Date.now() - a.startedAt,
@@ -1367,7 +1563,8 @@ function finishWorkout(opts = {}) {
     a.exercises.every(e => e.sets.length >= e.targetSets);
 
   let xpEarned = 0;
-  let leveledUp = false;
+  let weekComplete = false;
+  let programComplete = false;
   const prevLvl = levelFromXp(state.stats.xp);
 
   // XP per set
@@ -1380,7 +1577,7 @@ function finishWorkout(opts = {}) {
   if (fullyComplete) {
     xpEarned += 100;
 
-    // Streak
+    // Streak (per workout day)
     const today = Date.now();
     const last = state.stats.lastDayCompleteDate;
     if (last) {
@@ -1397,24 +1594,40 @@ function finishWorkout(opts = {}) {
     }
     state.stats.lastDayCompleteDate = today;
 
-    state.currentRun.completedDayCount += 1;
+    // Mark this day done this week (if not already)
+    if (!state.currentRun.completedDayIndices.includes(a.dayIndex)) {
+      state.currentRun.completedDayIndices.push(a.dayIndex);
+    }
 
-    if (programIsComplete()) {
-      xpEarned += 2500;
+    // Week complete?
+    if (state.currentRun.completedDayIndices.length >= state.program.template.length) {
+      weekComplete = true;
+      xpEarned += 500;
+      state.currentRun.weekIndex += 1;
+      state.currentRun.completedDayIndices = [];
+
+      // Program complete?
+      if (programIsComplete()) {
+        programComplete = true;
+        xpEarned += 2500;
+      }
     }
   }
 
   state.stats.xp += xpEarned;
-  leveledUp = levelFromXp(state.stats.xp) > prevLvl;
+  const leveledUp = levelFromXp(state.stats.xp) > prevLvl;
 
   state.celebration = {
     type: 'workout',
     dayName: a.dayName,
+    weekIndex: a.weekIndex,
     setCount: setCount(exsWithSets),
     volume: totalVolume(exsWithSets),
     xpEarned,
     leveledUp,
-    fullyComplete
+    fullyComplete,
+    weekComplete,
+    programComplete
   };
   state.active = null;
   save();
@@ -1455,6 +1668,16 @@ function renderModal() {
 /* ---------- Boot ---------- */
 bindGlobalEvents();
 render();
+
+if (!storageWorks()) {
+  showModal({
+    title: 'Storage is disabled',
+    body: 'This browser isn\'t letting the app save anything to local storage. The most common cause is Private/Incognito mode. Open this URL in a regular browser tab and add it to your home screen from there.',
+    confirmText: 'OK',
+    hideCancel: true,
+    onConfirm: closeModal
+  });
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
