@@ -562,6 +562,79 @@
   }
   .celebrate h1 { font-size: 32px; margin-bottom: 8px; }
   .celebrate .sub { color: var(--text-dim); margin-bottom: 24px; }
+
+  /* Week progression timeline on celebration */
+  .week-timeline {
+    max-width: 360px;
+    margin: 8px auto 24px;
+    padding: 0 8px;
+  }
+  .week-tl-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+  .week-tl-node {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--card);
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    flex-shrink: 0;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+  }
+  .week-tl-node.done {
+    background: var(--success);
+    border-color: var(--success);
+    color: white;
+  }
+  .week-tl-node.animate-in {
+    animation: tl-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  }
+  .week-tl-line {
+    flex: 1;
+    height: 2px;
+    background: var(--border);
+    transition: background 0.3s ease;
+  }
+  .week-tl-line.filled { background: var(--success); }
+  .week-tl-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+  }
+  .week-tl-name {
+    width: 44px;
+    text-align: center;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .week-tl-name.done { color: var(--text); }
+  .week-tl-caption {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  @keyframes tl-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    60%  { transform: scale(1.18); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
   .reward-row {
     display: flex; justify-content: center; gap: 12px;
     margin: 20px 0;
@@ -765,7 +838,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v11 · exercise library';
+const APP_VERSION = 'v12 · week timeline';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -1526,11 +1599,14 @@ Views.celebration = function() {
     sub = `${c.setCount} sets · ${fmtNum(c.volume)} kg · day not yet complete`;
   }
 
+  const timeline = (c.fullyComplete && !c.programComplete) ? weekTimelineHtml(c) : '';
+
   return `
     <div class="celebrate">
       <div class="big" style="background:${iconBg};">${icon}</div>
       <h1>${headline}</h1>
       <p class="sub">${sub}</p>
+      ${timeline}
       <div class="reward-row">
         <div class="reward"><span class="label">XP Earned</span>+${c.xpEarned}</div>
         ${c.fullyComplete ? `<div class="reward"><span class="label">Streak</span>🔥 ${state.stats.streak}</div>` : ''}
@@ -1540,6 +1616,53 @@ Views.celebration = function() {
     </div>
   `;
 };
+
+function weekTimelineHtml(c) {
+  const names = c.templateDayNames || [];
+  if (!names.length) return '';
+  const done = new Set(c.completedThisWeek || []);
+  const doneCount = done.size;
+  const total = names.length;
+
+  // Cascade animation on week-complete; otherwise only the just-done node pops.
+  const animate = (i) => {
+    if (c.weekComplete && done.has(i)) return `animation-delay: ${i * 90}ms;`;
+    if (!c.weekComplete && i === c.dayIndex) return '';
+    return null;
+  };
+
+  const nodes = names.map((name, i) => {
+    const isDone = done.has(i);
+    const animStyle = animate(i);
+    const isAnimated = animStyle !== null;
+    const cls = ['week-tl-node', isDone ? 'done' : '', isAnimated ? 'animate-in' : ''].filter(Boolean).join(' ');
+    return `<div class="${cls}"${animStyle ? ` style="${animStyle}"` : ''}>${isDone ? '✓' : (i + 1)}</div>`;
+  });
+
+  // Lines fill when both adjacent nodes are done.
+  const row = [];
+  nodes.forEach((node, i) => {
+    row.push(node);
+    if (i < nodes.length - 1) {
+      const filled = done.has(i) && done.has(i + 1);
+      row.push(`<div class="week-tl-line${filled ? ' filled' : ''}"></div>`);
+    }
+  });
+
+  const labels = names.map((name, i) => {
+    const isDone = done.has(i);
+    const label = (name || '').trim() || `Day ${i + 1}`;
+    return `<div class="week-tl-name${isDone ? ' done' : ''}">${esc(label)}</div>`;
+  }).join('');
+
+  return `
+    <div class="week-timeline${c.weekComplete ? ' week-complete' : ''}">
+      <div class="week-tl-row">${row.join('')}</div>
+      <div class="week-tl-labels">${labels}</div>
+      <div class="week-tl-caption">Week ${c.weekIndex + 1} · ${doneCount} of ${total} done</div>
+    </div>
+  `;
+}
 
 /* ---------- Event handling ---------- */
 function bindGlobalEvents() {
@@ -2073,9 +2196,18 @@ function finishWorkout(opts = {}) {
   state.stats.xp += xpEarned;
   const leveledUp = levelFromXp(state.stats.xp) > prevLvl;
 
+  // Snapshot of which template days are done in the week we just worked.
+  // For a normal day-complete this matches currentRun.completedDayIndices.
+  // For a week-complete the run has already reset, so synthesize the full set.
+  const completedThisWeek = weekComplete
+    ? state.program.template.map((_, i) => i)
+    : state.currentRun.completedDayIndices.slice();
+  const templateDayNames = state.program.template.map(d => d.name || '');
+
   state.celebration = {
     type: 'workout',
     dayName: a.dayName,
+    dayIndex: a.dayIndex,
     weekIndex: a.weekIndex,
     setCount: setCount(exsWithSets),
     volume: totalVolume(exsWithSets),
@@ -2083,7 +2215,9 @@ function finishWorkout(opts = {}) {
     leveledUp,
     fullyComplete,
     weekComplete,
-    programComplete
+    programComplete,
+    completedThisWeek,
+    templateDayNames
   };
   if (programComplete) buzz([80, 60, 80, 60, 80, 60, 200]);
   else if (weekComplete) buzz([60, 80, 60, 80, 60]);
