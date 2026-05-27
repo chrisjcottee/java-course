@@ -581,7 +581,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v5 · no preset weight';
+const APP_VERSION = 'v5 · modal fix';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
@@ -1649,7 +1649,7 @@ function renderModal() {
   }
   root.innerHTML = `
     <div class="modal-backdrop">
-      <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal">
         <h3>${esc(modal.title)}</h3>
         ${modal.body ? `<p>${esc(modal.body)}</p>` : ''}
         <div class="btn-group">
