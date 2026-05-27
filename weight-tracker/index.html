@@ -307,21 +307,27 @@
   }
   .set-row.active input,
   .set-row.editing input {
+    height: 44px;
+    padding: 0 12px;
     text-align: center;
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
-    padding: 12px 8px;
     font-variant-numeric: tabular-nums;
+    background: var(--bg);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    box-sizing: border-box;
   }
   .set-row.active .log-btn {
     background: var(--accent);
     color: white;
     border: none;
     border-radius: var(--radius-sm);
-    height: 46px;
-    font-size: 22px;
+    height: 44px;
+    font-size: 20px;
     cursor: pointer;
     font-weight: 700;
+    box-sizing: border-box;
   }
   .set-row.active .log-btn:disabled {
     background: var(--border);
@@ -355,10 +361,11 @@
     flex: 1;
     border: none;
     border-radius: var(--radius-sm);
-    height: 46px;
+    height: 44px;
     font-size: 20px;
     font-weight: 700;
     cursor: pointer;
+    box-sizing: border-box;
   }
   .set-row.editing .edit-actions .log-btn {
     background: var(--accent);
@@ -400,14 +407,16 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    height: 44px;
     background: var(--bg);
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     padding: 2px;
     min-width: 0;
+    box-sizing: border-box;
   }
   .set-row .reps-stepper .step-btn {
-    width: 32px; height: 38px;
+    width: 40px; height: 38px;
     font-size: 20px;
     color: var(--accent);
     background: transparent;
@@ -755,7 +764,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v8 · set prefill';
+const APP_VERSION = 'v9 · unified controls';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
