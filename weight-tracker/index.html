@@ -392,7 +392,42 @@
     font-family: inherit;
     font-variant-numeric: tabular-nums;
   }
+  .last-chip.static { cursor: default; }
   .last-chip .copy { color: var(--accent); font-weight: 600; }
+
+  /* Compact reps stepper in workout set rows */
+  .set-row .reps-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    min-width: 0;
+  }
+  .set-row .reps-stepper .step-btn {
+    width: 32px; height: 38px;
+    font-size: 20px;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .set-row .reps-stepper .step-btn:active { background: var(--accent-dim); }
+  .set-row .reps-stepper .step-val {
+    flex: 1;
+    text-align: center;
+    font-size: 17px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 24px;
+  }
+  .set-row.editing .reps-stepper {
+    background: white;
+  }
 
   /* Bottom bar in workout */
   .workout-bottom {
@@ -720,7 +755,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v7 · UX pass';
+const APP_VERSION = 'v8 · set prefill';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
@@ -872,6 +907,21 @@ function findLastSet(exerciseName, setIndex) {
     if (ex && ex.sets[setIndex]) return ex.sets[setIndex];
   }
   return null;
+}
+
+function weightPrefillFor(ex, si) {
+  // Set 2+: take the weight from the previous set in this workout
+  if (si > 0 && ex.sets[si - 1]) return ex.sets[si - 1].weight;
+  // Set 1: take the weight from the most recent matching set in history (if any)
+  const last = findLastSet(ex.name, 0);
+  return last ? last.weight : '';
+}
+
+function repsPrefillFor(ex, si) {
+  // Set 2+: take the reps from the previous set in this workout
+  if (si > 0 && ex.sets[si - 1]) return ex.sets[si - 1].reps;
+  // Set 1: use the program's target reps
+  return ex.targetReps;
 }
 
 function dayIsDoneThisWeek(dayIndex) {
@@ -1335,7 +1385,7 @@ function setRowHtml(ex, exIdx, si, isCurrentEx) {
       <div class="set-row editing" data-set-idx="${si}">
         <span class="lbl">${si + 1}</span>
         <input type="tel" inputmode="decimal" class="set-w" value="${logged.weight}" autocomplete="off" maxlength="6">
-        <input type="tel" inputmode="numeric" class="set-r" value="${logged.reps}" autocomplete="off" maxlength="3">
+        ${repsStepperHtml(logged.reps)}
         <div class="edit-actions">
           <button class="log-btn" data-act="save-edit" title="Save">✓</button>
           <button class="cancel-btn" data-act="cancel-edit" title="Cancel">×</button>
@@ -1366,21 +1416,33 @@ function setRowHtml(ex, exIdx, si, isCurrentEx) {
     `;
   }
 
-  // Active row
+  // Active row — prefilled where possible
+  const wPrefill = weightPrefillFor(ex, si);
+  const rPrefill = repsPrefillFor(ex, si);
+  const wHasValue = wPrefill !== '' && !isNaN(parseFloat(wPrefill));
   const last = findLastSet(ex.name, si);
   return `
     <div class="set-row active" data-set-idx="${si}">
       <span class="lbl">${si + 1}</span>
-      <input type="tel" inputmode="decimal" class="set-w" placeholder="kg" autocomplete="off" maxlength="6">
-      <input type="tel" inputmode="numeric" class="set-r" placeholder="reps" autocomplete="off" maxlength="3">
-      <button class="log-btn" disabled>✓</button>
+      <input type="tel" inputmode="decimal" class="set-w" value="${wHasValue ? wPrefill : ''}" placeholder="kg" autocomplete="off" maxlength="6">
+      ${repsStepperHtml(rPrefill)}
+      <button class="log-btn"${wHasValue ? '' : ' disabled'}>✓</button>
       ${last ? `
         <div class="last-ref">
-          <button class="last-chip" data-copy-w="${last.weight}" data-copy-r="${last.reps}">
-            Last: ${fmtNum(last.weight)} kg × ${last.reps} <span class="copy">Copy</span>
-          </button>
+          <span class="last-chip static">Last: ${fmtNum(last.weight)} kg × ${last.reps}</span>
         </div>
       ` : ''}
+    </div>
+  `;
+}
+
+function repsStepperHtml(value) {
+  return `
+    <div class="reps-stepper">
+      <button class="step-btn" data-step="-1" type="button">−</button>
+      <span class="step-val">${value}</span>
+      <button class="step-btn" data-step="1" type="button">+</button>
+      <input type="hidden" class="set-r" value="${value}">
     </div>
   `;
 }
@@ -1432,6 +1494,14 @@ function bindGlobalEvents() {
   document.addEventListener('click', onClick);
   document.addEventListener('input', onInput);
   document.addEventListener('keydown', onKeydown);
+  document.addEventListener('focusin', onFocusIn);
+}
+
+function onFocusIn(e) {
+  // Select the prefilled weight on focus so it can be overtyped immediately.
+  if (e.target.classList && e.target.classList.contains('set-w') && e.target.value) {
+    setTimeout(() => { try { e.target.select(); } catch (_) {} }, 0);
+  }
 }
 
 function onClick(e) {
@@ -1443,7 +1513,11 @@ function onClick(e) {
 
   // Setup screen
   if (e.target.classList.contains('step-btn')) {
-    handleStepperClick(e.target);
+    if (e.target.closest('.set-row')) {
+      handleRepsStepperClick(e.target);
+    } else {
+      handleStepperClick(e.target);
+    }
     return;
   }
   if (e.target.id === 'add-day') {
@@ -1563,14 +1637,6 @@ function onClick(e) {
     logCurrentSet(e.target.closest('.set-row'));
     return;
   }
-  if (e.target.closest('.last-chip')) {
-    const chip = e.target.closest('.last-chip');
-    const row = chip.closest('.set-row');
-    row.querySelector('.set-w').value = chip.dataset.copyW;
-    row.querySelector('.set-r').value = chip.dataset.copyR;
-    updateLogBtn(row);
-    return;
-  }
   if (e.target.classList.contains('dot') && e.target.dataset.jump != null) {
     const idx = +e.target.dataset.jump;
     const card = document.querySelector(`[data-ex-idx="${idx}"]`);
@@ -1669,6 +1735,20 @@ function updateLogBtn(row) {
 function rerenderSetup() {
   const app = $('#app');
   app.innerHTML = Views.setup();
+}
+
+function handleRepsStepperClick(btn) {
+  const row = btn.closest('.set-row');
+  if (!row) return;
+  const hidden = row.querySelector('.set-r');
+  const display = row.querySelector('.reps-stepper .step-val');
+  if (!hidden || !display) return;
+  const delta = parseInt(btn.dataset.step, 10);
+  const cur = parseInt(hidden.value, 10) || 0;
+  const next = clampStepper(cur + delta, 1, 100);
+  hidden.value = next;
+  display.textContent = next;
+  updateLogBtn(row);
 }
 
 function handleStepperClick(btn) {
