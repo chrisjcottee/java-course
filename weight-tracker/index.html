@@ -305,7 +305,8 @@
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
-  .set-row.active input {
+  .set-row.active input,
+  .set-row.editing input {
     text-align: center;
     font-size: 18px;
     font-weight: 600;
@@ -325,6 +326,50 @@
   .set-row.active .log-btn:disabled {
     background: var(--border);
     color: var(--text-faint);
+  }
+  .edit-set-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    justify-self: end;
+  }
+  .edit-set-btn:active { background: var(--bg); }
+  .set-row.editing {
+    grid-template-columns: 48px 1fr 1fr 96px;
+    background: var(--accent-dim);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+  }
+  .set-row.editing .edit-actions {
+    display: flex;
+    gap: 4px;
+  }
+  .set-row.editing .edit-actions .log-btn,
+  .set-row.editing .edit-actions .cancel-btn {
+    flex: 1;
+    border: none;
+    border-radius: var(--radius-sm);
+    height: 46px;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .set-row.editing .edit-actions .log-btn {
+    background: var(--accent);
+    color: white;
+  }
+  .set-row.editing .edit-actions .log-btn:disabled {
+    background: var(--border);
+    color: var(--text-faint);
+  }
+  .set-row.editing .edit-actions .cancel-btn {
+    background: white;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
   }
   .last-ref {
     grid-column: 2 / 5;
@@ -581,7 +626,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v5 · modal fix';
+const APP_VERSION = 'v6 · edit sets';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
@@ -595,7 +640,8 @@ const DEFAULT_STATE = {
 };
 
 let state = load();
-let setupDraft = null; // { name, days: [...] } while editing in setup screen
+let setupDraft = null;  // { name, weeks, days: [...] } while editing in setup screen
+let editingSet = null;  // { exIdx, setIdx } when a logged set is being edited
 let modal = null;
 
 function load() {
@@ -1114,16 +1160,31 @@ function exerciseCardHtml(ex, i, currentExIdx) {
       </div>
       <div class="ex-target">Target: ${ex.targetSets} × ${ex.targetReps}</div>
       <div class="sets">
-        ${Array.from({length: ex.targetSets}, (_, si) => setRowHtml(ex, si, isCurrent)).join('')}
+        ${Array.from({length: ex.targetSets}, (_, si) => setRowHtml(ex, i, si, isCurrent)).join('')}
       </div>
     </div>
   `;
 }
 
-function setRowHtml(ex, si, isCurrentEx) {
+function setRowHtml(ex, exIdx, si, isCurrentEx) {
   const logged = ex.sets[si];
+  const isEditing = !!logged && editingSet && editingSet.exIdx === exIdx && editingSet.setIdx === si;
   const isActive = isCurrentEx && !logged && si === ex.sets.length;
   const isPending = !logged && !isActive;
+
+  if (isEditing) {
+    return `
+      <div class="set-row editing" data-set-idx="${si}">
+        <span class="lbl">${si + 1}</span>
+        <input type="tel" inputmode="decimal" class="set-w" value="${logged.weight}" autocomplete="off" maxlength="6">
+        <input type="tel" inputmode="numeric" class="set-r" value="${logged.reps}" autocomplete="off" maxlength="3">
+        <div class="edit-actions">
+          <button class="log-btn" data-act="save-edit" title="Save">✓</button>
+          <button class="cancel-btn" data-act="cancel-edit" title="Cancel">×</button>
+        </div>
+      </div>
+    `;
+  }
 
   if (logged) {
     return `
@@ -1131,7 +1192,7 @@ function setRowHtml(ex, si, isCurrentEx) {
         <span class="lbl">${si + 1} ✓</span>
         <span class="val">${fmtNum(logged.weight)} kg</span>
         <span class="val">× ${logged.reps}</span>
-        <span></span>
+        <button class="edit-set-btn" data-edit-set="${exIdx},${si}" title="Edit set">✎</button>
       </div>
     `;
   }
@@ -1317,6 +1378,7 @@ function onClick(e) {
       danger: true,
       onConfirm: () => {
         state.active = null;
+        editingSet = null;
         closeModal();
         setState({});
       }
@@ -1337,6 +1399,21 @@ function onClick(e) {
         closeModal();
       }
     });
+    return;
+  }
+  if (e.target.dataset.editSet) {
+    const [exIdx, setIdx] = e.target.dataset.editSet.split(',').map(Number);
+    editingSet = { exIdx, setIdx };
+    render();
+    return;
+  }
+  if (e.target.dataset.act === 'save-edit') {
+    saveEditedSet(e.target.closest('.set-row'));
+    return;
+  }
+  if (e.target.dataset.act === 'cancel-edit') {
+    editingSet = null;
+    render();
     return;
   }
   if (e.target.classList.contains('log-btn')) {
@@ -1414,6 +1491,12 @@ function onInput(e) {
 
 function onKeydown(e) {
   if (e.key === 'Enter') {
+    const editRow = e.target.closest && e.target.closest('.set-row.editing');
+    if (editRow) {
+      e.preventDefault();
+      saveEditedSet(editRow);
+      return;
+    }
     const row = e.target.closest && e.target.closest('.set-row.active');
     if (row) {
       e.preventDefault();
@@ -1421,8 +1504,13 @@ function onKeydown(e) {
       if (btn && !btn.disabled) logCurrentSet(row);
     }
   }
-  if (e.key === 'Escape' && modal) {
-    closeModal();
+  if (e.key === 'Escape') {
+    if (editingSet) {
+      editingSet = null;
+      render();
+      return;
+    }
+    if (modal) closeModal();
   }
 }
 
@@ -1491,6 +1579,7 @@ function startWorkout(dayIndex) {
   if (dayIsDoneThisWeek(dayIndex)) return;
   const day = state.program.template[dayIndex];
   if (!day) return;
+  editingSet = null;
   state.active = {
     weekIndex: state.currentRun.weekIndex,
     dayIndex,
@@ -1503,6 +1592,20 @@ function startWorkout(dayIndex) {
       sets: []
     }))
   };
+  save();
+  render();
+}
+
+function saveEditedSet(row) {
+  if (!row || !state.active || !editingSet) return;
+  const w = parseFloat(row.querySelector('.set-w').value);
+  const r = parseInt(row.querySelector('.set-r').value, 10);
+  if (isNaN(w) || isNaN(r) || r <= 0 || w < 0) return;
+  const ex = state.active.exercises[editingSet.exIdx];
+  const existing = ex.sets[editingSet.setIdx];
+  if (!existing) { editingSet = null; render(); return; }
+  ex.sets[editingSet.setIdx] = { ...existing, weight: w, reps: r };
+  editingSet = null;
   save();
   render();
 }
@@ -1539,6 +1642,7 @@ function finishWorkout(opts = {}) {
   const exsWithSets = a.exercises.filter(e => e.sets.length > 0);
   if (!exsWithSets.length) {
     state.active = null;
+    editingSet = null;
     save();
     render();
     return;
@@ -1626,6 +1730,7 @@ function finishWorkout(opts = {}) {
     programComplete
   };
   state.active = null;
+  editingSet = null;
   save();
   render();
 }
