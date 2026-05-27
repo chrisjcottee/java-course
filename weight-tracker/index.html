@@ -444,25 +444,29 @@
     min-width: 36px;
     min-height: 36px;
   }
+  .stepper-group {
+    flex: 1;
+    min-width: 0;
+  }
   .stepper {
     display: flex;
     align-items: center;
-    gap: 4px;
+    justify-content: space-between;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 4px 6px 4px 12px;
-    flex: 1;
+    padding: 4px;
+    min-width: 0;
   }
-  .stepper.big { padding: 6px 8px 6px 14px; }
+  .stepper.big { padding: 6px; }
   .stepper-label {
+    display: block;
     font-size: 11px;
     color: var(--text-faint);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     font-weight: 600;
-    margin-right: 4px;
-    flex: 1;
+    margin: 0 0 4px 4px;
   }
   .step-btn {
     width: 36px; height: 36px;
@@ -473,9 +477,11 @@
     font-weight: 600;
     cursor: pointer;
     border-radius: var(--radius-sm);
+    flex-shrink: 0;
   }
   .step-btn:active { background: var(--accent-dim); }
   .step-val {
+    flex: 1;
     min-width: 28px;
     text-align: center;
     font-size: 17px;
@@ -1000,17 +1006,21 @@ function exEditorHtml(ex, j) {
         <button class="remove" data-act="rm-ex" title="Remove">×</button>
       </div>
       <div class="ex-editor-bottom">
-        <div class="stepper" data-f="sets">
+        <div class="stepper-group">
           <span class="stepper-label">Sets</span>
-          <button class="step-btn" data-step="-1" type="button">−</button>
-          <span class="step-val">${ex.sets}</span>
-          <button class="step-btn" data-step="1" type="button">+</button>
+          <div class="stepper" data-f="sets">
+            <button class="step-btn" data-step="-1" type="button">−</button>
+            <span class="step-val">${ex.sets}</span>
+            <button class="step-btn" data-step="1" type="button">+</button>
+          </div>
         </div>
-        <div class="stepper" data-f="reps">
+        <div class="stepper-group">
           <span class="stepper-label">Reps</span>
-          <button class="step-btn" data-step="-1" type="button">−</button>
-          <span class="step-val">${ex.reps}</span>
-          <button class="step-btn" data-step="1" type="button">+</button>
+          <div class="stepper" data-f="reps">
+            <button class="step-btn" data-step="-1" type="button">−</button>
+            <span class="step-val">${ex.reps}</span>
+            <button class="step-btn" data-step="1" type="button">+</button>
+          </div>
         </div>
       </div>
     </div>
