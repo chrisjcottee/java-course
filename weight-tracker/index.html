@@ -551,6 +551,18 @@
   .modal h3 { margin-bottom: 8px; }
   .modal p { color: var(--text-dim); margin: 0 0 20px; }
   .modal .btn-group { margin-top: 12px; }
+  .modal-extra {
+    display: block;
+    margin: 16px auto 0;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  .modal-extra.danger { color: var(--danger); }
 
   /* Misc */
   .divider { height: 1px; background: var(--border); margin: 16px 0; }
@@ -1099,14 +1111,14 @@ Views.workout = function() {
   const totalEx = a.exercises.length;
   const currentExIdx = a.exercises.findIndex(e => e.sets.length < e.targetSets);
   const allDone = currentExIdx === -1;
+  const doneCount = a.exercises.filter(e => e.sets.length >= e.targetSets).length;
 
   return `
     <div class="workout-top">
-      <div class="row between">
+      <div class="row">
         <div>
           <div class="subtle">Week ${a.weekIndex + 1} · ${esc(a.dayName)}</div>
         </div>
-        <button class="btn icon" id="close-workout" title="Quit">×</button>
       </div>
       <div class="dots">
         ${a.exercises.map((e, i) => {
@@ -1121,10 +1133,10 @@ Views.workout = function() {
 
     <div class="workout-bottom">
       <div class="workout-bottom-inner">
-        ${allDone
-          ? `<button class="btn success" id="finish-workout">Finish Workout ✓</button>`
-          : `<div class="row between"><span class="subtle">${a.exercises.filter(e => e.sets.length >= e.targetSets).length} of ${totalEx} complete</span><button class="btn ghost small" id="finish-early">End Early</button></div>`
-        }
+        <div class="row between" style="align-items:center; gap:12px;">
+          <span class="subtle" style="white-space:nowrap;">${doneCount} of ${totalEx} complete</span>
+          <button class="btn ${allDone ? 'success' : ''}" id="finish-workout" style="flex:1; max-width:200px;">${allDone ? 'Finish Workout ✓' : 'Finish'}</button>
+        </div>
       </div>
     </div>
   `;
@@ -1370,35 +1382,8 @@ function onClick(e) {
   }
 
   // Workout
-  if (e.target.id === 'close-workout') {
-    showModal({
-      title: 'Quit workout?',
-      body: 'Sets you\'ve logged in this session will be discarded.',
-      confirmText: 'Quit',
-      danger: true,
-      onConfirm: () => {
-        state.active = null;
-        editingSet = null;
-        closeModal();
-        setState({});
-      }
-    });
-    return;
-  }
   if (e.target.id === 'finish-workout') {
-    finishWorkout();
-    return;
-  }
-  if (e.target.id === 'finish-early') {
-    showModal({
-      title: 'End workout early?',
-      body: 'Your workout will be saved but the day won\'t be marked complete. You can finish it later.',
-      confirmText: 'Save & End',
-      onConfirm: () => {
-        finishWorkout({ partial: true });
-        closeModal();
-      }
-    });
+    endWorkoutFlow();
     return;
   }
   if (e.target.dataset.editSet) {
@@ -1453,6 +1438,11 @@ function onClick(e) {
   }
   if (e.target.id === 'modal-confirm') {
     const fn = modal && modal.onConfirm;
+    if (fn) fn();
+    return;
+  }
+  if (e.target.id === 'modal-extra') {
+    const fn = modal && modal.extraAction && modal.extraAction.onClick;
     if (fn) fn();
     return;
   }
@@ -1594,6 +1584,55 @@ function startWorkout(dayIndex) {
   };
   save();
   render();
+}
+
+function endWorkoutFlow() {
+  const a = state.active;
+  if (!a) return;
+  const fullyComplete = a.exercises.every(e => e.sets.length >= e.targetSets);
+  const anyLogged = a.exercises.some(e => e.sets.length > 0);
+
+  if (fullyComplete) {
+    finishWorkout();
+    return;
+  }
+
+  if (!anyLogged) {
+    showModal({
+      title: 'Discard workout?',
+      body: 'You haven\'t logged any sets yet.',
+      confirmText: 'Discard',
+      danger: true,
+      onConfirm: () => {
+        state.active = null;
+        editingSet = null;
+        closeModal();
+        setState({});
+      }
+    });
+    return;
+  }
+
+  // Partial — give the choice between Save & End and Discard
+  showModal({
+    title: 'Save your progress?',
+    body: 'You haven\'t finished every exercise. Save what you\'ve done so far, or discard the workout?',
+    confirmText: 'Save & End',
+    onConfirm: () => {
+      finishWorkout({ partial: true });
+      closeModal();
+    },
+    extraAction: {
+      label: 'Discard workout',
+      danger: true,
+      onClick: () => {
+        state.active = null;
+        editingSet = null;
+        closeModal();
+        setState({});
+      }
+    }
+  });
 }
 
 function saveEditedSet(row) {
@@ -1761,6 +1800,7 @@ function renderModal() {
           ${modal.hideCancel ? '' : `<button class="btn secondary" id="modal-cancel">Cancel</button>`}
           <button class="btn" id="modal-confirm" style="${modal.danger ? 'background: var(--danger);' : ''}">${esc(modal.confirmText || 'OK')}</button>
         </div>
+        ${modal.extraAction ? `<button class="modal-extra ${modal.extraAction.danger ? 'danger' : ''}" id="modal-extra">${esc(modal.extraAction.label)}</button>` : ''}
       </div>
     </div>
   `;
