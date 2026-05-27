@@ -420,26 +420,69 @@
     padding: 12px;
     margin-bottom: 8px;
   }
-  .ex-editor-row {
-    display: grid;
-    grid-template-columns: 1fr 70px 70px 32px;
-    gap: 6px;
+  .ex-editor-top {
+    display: flex;
+    gap: 8px;
     align-items: center;
   }
-  .ex-editor-row input { padding: 8px 10px; font-size: 14px; }
-  .ex-editor-row input.exname { font-size: 15px; }
-  .ex-editor-row .remove {
+  .ex-editor-top .exname { flex: 1; padding: 10px 12px; font-size: 15px; }
+  .ex-editor-bottom {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .ex-editor .remove {
     background: transparent;
     border: none;
     color: var(--danger);
-    font-size: 20px;
+    font-size: 22px;
     cursor: pointer;
-    padding: 4px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    min-width: 36px;
+    min-height: 36px;
   }
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 6px 4px 12px;
+    flex: 1;
+  }
+  .stepper.big { padding: 6px 8px 6px 14px; }
+  .stepper-label {
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    margin-right: 4px;
+    flex: 1;
+  }
+  .step-btn {
+    width: 36px; height: 36px;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .step-btn:active { background: var(--accent-dim); }
+  .step-val {
+    min-width: 28px;
+    text-align: center;
+    font-size: 17px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  /* placeholder for old style — no longer used but kept harmless */
   .ex-editor-head {
-    display: grid;
-    grid-template-columns: 1fr 70px 70px 32px;
-    gap: 6px;
+    display: none;
     font-size: 11px;
     color: var(--text-faint);
     text-transform: uppercase;
@@ -881,7 +924,12 @@ Views.setup = function() {
       ? { name: state.program.name, weeks: state.program.weeks, days: structuredClone(state.program.template) }
       : { name: 'My Program', weeks: 8, days: [makeDay()] };
   }
+  const suggestions = exerciseNameSuggestions();
   return `
+    <datalist id="exercise-options">
+      ${suggestions.map(n => `<option value="${esc(n)}">`).join('')}
+    </datalist>
+
     <h1>${state.program ? 'Edit Program' : 'Build Your Program'}</h1>
     <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Pick how many weeks the program runs, then add the days that repeat each week (e.g. Push, Pull, Legs). For each day, add exercises with target sets and reps. You\'ll log the weight during each workout.'}</p>
 
@@ -890,9 +938,13 @@ Views.setup = function() {
         <span class="lbl">Program Name</span>
         <input type="text" id="prog-name" value="${esc(setupDraft.name)}" placeholder="e.g. 8-week Push/Pull/Legs">
       </label>
-      <label class="field" style="max-width:160px;">
+      <label class="field" style="max-width:200px;">
         <span class="lbl">Number of Weeks</span>
-        <input type="number" id="prog-weeks" value="${setupDraft.weeks}" min="1" max="52" inputmode="numeric">
+        <div class="stepper big" data-stepper-target="weeks">
+          <button class="step-btn" data-step="-1" type="button">−</button>
+          <span class="step-val" id="prog-weeks-val">${setupDraft.weeks}</span>
+          <button class="step-btn" data-step="1" type="button">+</button>
+        </div>
       </label>
     </div>
 
@@ -925,9 +977,6 @@ function dayEditorHtml(day, i) {
         <input type="text" class="day-name" value="${esc(day.name)}" placeholder="Day ${i + 1} name (e.g. Push)" style="font-weight:600;">
         ${setupDraft.days.length > 1 ? `<button class="btn icon" data-act="rm-day" title="Remove day">×</button>` : ''}
       </div>
-      <div class="ex-editor-head">
-        <span>Exercise</span><span>Sets</span><span>Reps</span><span></span>
-      </div>
       <div class="exercises">
         ${day.exercises.map((e, j) => exEditorHtml(e, j)).join('')}
       </div>
@@ -939,15 +988,36 @@ function dayEditorHtml(day, i) {
 function exEditorHtml(ex, j) {
   return `
     <div class="ex-editor" data-ex="${j}">
-      <div class="ex-editor-row">
-        <input type="text" class="exname" data-f="name" value="${esc(ex.name)}" placeholder="Exercise name">
-        <input type="number" data-f="sets" value="${ex.sets}" min="1" max="20" inputmode="numeric">
-        <input type="number" data-f="reps" value="${ex.reps}" min="1" max="100" inputmode="numeric">
+      <div class="ex-editor-top">
+        <input type="text" class="exname" list="exercise-options" data-f="name" value="${esc(ex.name)}" placeholder="Exercise name">
         <button class="remove" data-act="rm-ex" title="Remove">×</button>
+      </div>
+      <div class="ex-editor-bottom">
+        <div class="stepper" data-f="sets">
+          <span class="stepper-label">Sets</span>
+          <button class="step-btn" data-step="-1" type="button">−</button>
+          <span class="step-val">${ex.sets}</span>
+          <button class="step-btn" data-step="1" type="button">+</button>
+        </div>
+        <div class="stepper" data-f="reps">
+          <span class="stepper-label">Reps</span>
+          <button class="step-btn" data-step="-1" type="button">−</button>
+          <span class="step-val">${ex.reps}</span>
+          <button class="step-btn" data-step="1" type="button">+</button>
+        </div>
       </div>
     </div>
   `;
 };
+
+function exerciseNameSuggestions() {
+  const set = new Set();
+  state.sessions.forEach(s => s.exercises.forEach(e => { if (e.name) set.add(e.name); }));
+  if (state.program) {
+    state.program.template.forEach(d => d.exercises.forEach(e => { if (e.name) set.add(e.name); }));
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
 
 Views.today = function() {
   if (programIsComplete()) {
@@ -1355,6 +1425,10 @@ function onClick(e) {
   }
 
   // Setup screen
+  if (e.target.classList.contains('step-btn')) {
+    handleStepperClick(e.target);
+    return;
+  }
   if (e.target.id === 'add-day') {
     setupDraft.days.push(makeDay());
     rerenderSetup();
@@ -1520,10 +1594,6 @@ function onInput(e) {
     setupDraft.name = e.target.value;
     return;
   }
-  if (e.target.id === 'prog-weeks') {
-    setupDraft.weeks = Math.max(1, parseInt(e.target.value) || 1);
-    return;
-  }
   if (e.target.classList.contains('day-name')) {
     const di = +e.target.closest('[data-day]').dataset.day;
     setupDraft.days[di].name = e.target.value;
@@ -1581,6 +1651,34 @@ function updateLogBtn(row) {
 function rerenderSetup() {
   const app = $('#app');
   app.innerHTML = Views.setup();
+}
+
+function handleStepperClick(btn) {
+  const delta = parseInt(btn.dataset.step, 10);
+  const stepper = btn.closest('.stepper');
+  if (!stepper) return;
+  // Program-level stepper (weeks)
+  if (stepper.dataset.stepperTarget === 'weeks') {
+    setupDraft.weeks = clampStepper(setupDraft.weeks + delta, 1, 52);
+    rerenderSetup();
+    return;
+  }
+  // Per-exercise stepper (sets or reps)
+  const field = stepper.dataset.f;
+  if (!field) return;
+  const dayEl = btn.closest('[data-day]');
+  const exEl = btn.closest('[data-ex]');
+  if (!dayEl || !exEl) return;
+  const di = +dayEl.dataset.day;
+  const ei = +exEl.dataset.ex;
+  const max = field === 'sets' ? 20 : 100;
+  const ex = setupDraft.days[di].exercises[ei];
+  ex[field] = clampStepper((ex[field] || 1) + delta, 1, max);
+  rerenderSetup();
+}
+
+function clampStepper(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
 }
 
 function saveSetup() {
