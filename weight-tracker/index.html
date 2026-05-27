@@ -327,17 +327,19 @@
     background: var(--border);
     color: var(--text-faint);
   }
-  .edit-set-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-dim);
-    font-size: 16px;
+  .set-row.logged {
     cursor: pointer;
-    padding: 6px;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.12s ease;
     border-radius: var(--radius-sm);
-    justify-self: end;
   }
-  .edit-set-btn:active { background: var(--bg); }
+  .set-row.logged:active { background: var(--bg); }
+  .edit-set-btn {
+    color: var(--text-faint);
+    font-size: 18px;
+    justify-self: end;
+    pointer-events: none;
+  }
   .set-row.editing {
     grid-template-columns: 48px 1fr 1fr 96px;
     background: var(--accent-dim);
@@ -420,26 +422,69 @@
     padding: 12px;
     margin-bottom: 8px;
   }
-  .ex-editor-row {
-    display: grid;
-    grid-template-columns: 1fr 70px 70px 32px;
-    gap: 6px;
+  .ex-editor-top {
+    display: flex;
+    gap: 8px;
     align-items: center;
   }
-  .ex-editor-row input { padding: 8px 10px; font-size: 14px; }
-  .ex-editor-row input.exname { font-size: 15px; }
-  .ex-editor-row .remove {
+  .ex-editor-top .exname { flex: 1; padding: 10px 12px; font-size: 15px; }
+  .ex-editor-bottom {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .ex-editor .remove {
     background: transparent;
     border: none;
     color: var(--danger);
-    font-size: 20px;
+    font-size: 22px;
     cursor: pointer;
-    padding: 4px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    min-width: 36px;
+    min-height: 36px;
   }
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 6px 4px 12px;
+    flex: 1;
+  }
+  .stepper.big { padding: 6px 8px 6px 14px; }
+  .stepper-label {
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    margin-right: 4px;
+    flex: 1;
+  }
+  .step-btn {
+    width: 36px; height: 36px;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .step-btn:active { background: var(--accent-dim); }
+  .step-val {
+    min-width: 28px;
+    text-align: center;
+    font-size: 17px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  /* placeholder for old style — no longer used but kept harmless */
   .ex-editor-head {
-    display: grid;
-    grid-template-columns: 1fr 70px 70px 32px;
-    gap: 6px;
+    display: none;
     font-size: 11px;
     color: var(--text-faint);
     text-transform: uppercase;
@@ -551,6 +596,18 @@
   .modal h3 { margin-bottom: 8px; }
   .modal p { color: var(--text-dim); margin: 0 0 20px; }
   .modal .btn-group { margin-top: 12px; }
+  .modal-extra {
+    display: block;
+    margin: 16px auto 0;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  .modal-extra.danger { color: var(--danger); }
 
   /* Misc */
   .divider { height: 1px; background: var(--border); margin: 16px 0; }
@@ -599,6 +656,37 @@
     font-size: 15px; font-weight: 700;
     flex-shrink: 0;
   }
+  .day-check.small { width: 22px; height: 22px; font-size: 13px; }
+
+  .day-row {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    box-shadow: var(--shadow);
+  }
+  .day-row.compact { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .day-row.done {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    opacity: 0.75;
+  }
+  .day-row-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .day-row-main { flex: 1; min-width: 0; }
+  .day-row-main .name { font-size: 16px; font-weight: 600; }
+  .day-row-main .meta { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+  .chevron { color: var(--text-faint); font-size: 14px; }
+  .day-row-detail {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
 
   .card-next {
     border: 2px solid var(--accent);
@@ -618,7 +706,7 @@
 <div id="app"></div>
 <nav id="tabs" hidden>
   <button class="tab" data-tab="today"><span class="ico">⌂</span><span>Today</span></button>
-  <button class="tab" data-tab="program"><span class="ico">≡</span><span>Program</span></button>
+  <button class="tab" data-tab="program"><span class="ico">⚙</span><span>Settings</span></button>
   <button class="tab" data-tab="history"><span class="ico">◷</span><span>History</span></button>
 </nav>
 
@@ -626,7 +714,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v6 · edit sets';
+const APP_VERSION = 'v7 · UX pass';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
@@ -642,6 +730,7 @@ const DEFAULT_STATE = {
 let state = load();
 let setupDraft = null;  // { name, weeks, days: [...] } while editing in setup screen
 let editingSet = null;  // { exIdx, setIdx } when a logged set is being edited
+let expandedDayIdx = null;  // index of compact day-card whose detail is expanded on Today
 let modal = null;
 
 function load() {
@@ -706,6 +795,11 @@ function save() {
     }
     return false;
   }
+}
+
+function buzz(pattern) {
+  // No-op on iOS Safari (Vibration API unsupported). Works on Android Chrome / many PWAs.
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
 }
 
 function storageWorks() {
@@ -837,7 +931,12 @@ Views.setup = function() {
       ? { name: state.program.name, weeks: state.program.weeks, days: structuredClone(state.program.template) }
       : { name: 'My Program', weeks: 8, days: [makeDay()] };
   }
+  const suggestions = exerciseNameSuggestions();
   return `
+    <datalist id="exercise-options">
+      ${suggestions.map(n => `<option value="${esc(n)}">`).join('')}
+    </datalist>
+
     <h1>${state.program ? 'Edit Program' : 'Build Your Program'}</h1>
     <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Pick how many weeks the program runs, then add the days that repeat each week (e.g. Push, Pull, Legs). For each day, add exercises with target sets and reps. You\'ll log the weight during each workout.'}</p>
 
@@ -846,9 +945,13 @@ Views.setup = function() {
         <span class="lbl">Program Name</span>
         <input type="text" id="prog-name" value="${esc(setupDraft.name)}" placeholder="e.g. 8-week Push/Pull/Legs">
       </label>
-      <label class="field" style="max-width:160px;">
+      <label class="field" style="max-width:200px;">
         <span class="lbl">Number of Weeks</span>
-        <input type="number" id="prog-weeks" value="${setupDraft.weeks}" min="1" max="52" inputmode="numeric">
+        <div class="stepper big" data-stepper-target="weeks">
+          <button class="step-btn" data-step="-1" type="button">−</button>
+          <span class="step-val" id="prog-weeks-val">${setupDraft.weeks}</span>
+          <button class="step-btn" data-step="1" type="button">+</button>
+        </div>
       </label>
     </div>
 
@@ -881,9 +984,6 @@ function dayEditorHtml(day, i) {
         <input type="text" class="day-name" value="${esc(day.name)}" placeholder="Day ${i + 1} name (e.g. Push)" style="font-weight:600;">
         ${setupDraft.days.length > 1 ? `<button class="btn icon" data-act="rm-day" title="Remove day">×</button>` : ''}
       </div>
-      <div class="ex-editor-head">
-        <span>Exercise</span><span>Sets</span><span>Reps</span><span></span>
-      </div>
       <div class="exercises">
         ${day.exercises.map((e, j) => exEditorHtml(e, j)).join('')}
       </div>
@@ -895,105 +995,138 @@ function dayEditorHtml(day, i) {
 function exEditorHtml(ex, j) {
   return `
     <div class="ex-editor" data-ex="${j}">
-      <div class="ex-editor-row">
-        <input type="text" class="exname" data-f="name" value="${esc(ex.name)}" placeholder="Exercise name">
-        <input type="number" data-f="sets" value="${ex.sets}" min="1" max="20" inputmode="numeric">
-        <input type="number" data-f="reps" value="${ex.reps}" min="1" max="100" inputmode="numeric">
+      <div class="ex-editor-top">
+        <input type="text" class="exname" list="exercise-options" data-f="name" value="${esc(ex.name)}" placeholder="Exercise name">
         <button class="remove" data-act="rm-ex" title="Remove">×</button>
+      </div>
+      <div class="ex-editor-bottom">
+        <div class="stepper" data-f="sets">
+          <span class="stepper-label">Sets</span>
+          <button class="step-btn" data-step="-1" type="button">−</button>
+          <span class="step-val">${ex.sets}</span>
+          <button class="step-btn" data-step="1" type="button">+</button>
+        </div>
+        <div class="stepper" data-f="reps">
+          <span class="stepper-label">Reps</span>
+          <button class="step-btn" data-step="-1" type="button">−</button>
+          <span class="step-val">${ex.reps}</span>
+          <button class="step-btn" data-step="1" type="button">+</button>
+        </div>
       </div>
     </div>
   `;
 };
+
+function exerciseNameSuggestions() {
+  const set = new Set();
+  state.sessions.forEach(s => s.exercises.forEach(e => { if (e.name) set.add(e.name); }));
+  if (state.program) {
+    state.program.template.forEach(d => d.exercises.forEach(e => { if (e.name) set.add(e.name); }));
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
 
 Views.today = function() {
   if (programIsComplete()) {
     return programCompleteView();
   }
   const lvl = levelFromXp(state.stats.xp);
+  const program = state.program;
   const week = state.currentRun.weekIndex;
-  const totalWeeks = state.program.weeks;
-  const template = state.program.template;
+  const totalWeeks = program.weeks;
+  const template = program.template;
   const doneCount = state.currentRun.completedDayIndices.length;
-  const remainingCount = template.length - doneCount;
-  const weekProgress = (doneCount / template.length * 100).toFixed(0);
-  const programProgress = (week / totalWeeks * 100).toFixed(0);
+  const overallDone = week * template.length + doneCount;
+  const overallTotal = totalWeeks * template.length;
+  const overallPct = (overallDone / overallTotal * 100).toFixed(0);
+
+  // Order cards: next-up first, other undone, then done last
+  const nextIdx = nextDayIndex();
+  const order = [];
+  if (nextIdx >= 0) order.push(nextIdx);
+  template.forEach((_, i) => { if (i !== nextIdx && !dayIsDoneThisWeek(i)) order.push(i); });
+  template.forEach((_, i) => { if (dayIsDoneThisWeek(i)) order.push(i); });
 
   return `
-    <h1>Today</h1>
-    <p class="subtle">${esc(state.program.name)} · Week ${week + 1} of ${totalWeeks}</p>
+    <div class="row between" style="align-items:baseline;">
+      <h1>Today</h1>
+      <button class="btn ghost small" id="edit-program">Edit program</button>
+    </div>
+    <p class="subtle">${esc(program.name)} · Week ${week + 1} of ${totalWeeks} · ${doneCount} of ${template.length} done</p>
 
-    <div class="stats">
+    <div class="stats" style="grid-template-columns: 1fr 1fr;">
       <div class="stat"><div class="v">🔥 ${state.stats.streak}</div><div class="k">Streak</div></div>
       <div class="stat"><div class="v">Lv ${lvl}</div><div class="k">${state.stats.xp} XP</div></div>
-      <div class="stat"><div class="v">${doneCount}/${template.length}</div><div class="k">This Week</div></div>
     </div>
 
-    <h2>This Week</h2>
-    <div class="progress-bar" style="margin-bottom:14px;">
-      <div class="fill" style="width:${weekProgress}%"></div>
+    <div class="progress-bar" style="margin: 18px 0 4px;">
+      <div class="fill" style="width:${overallPct}%"></div>
     </div>
+    <p class="subtle mono" style="margin: 0 0 20px; font-size: 12px;">${overallPct}% of program complete</p>
 
-    <div>
-      ${template.map((d, i) => dayCardHtml(d, i)).join('')}
-    </div>
-
-    <h2 style="margin-top:24px;">Program Progress</h2>
-    <p class="subtle" style="margin-top:-8px;">Week ${week + 1} of ${totalWeeks} · ${programProgress}% complete</p>
-    <div class="progress-bar" style="margin-bottom:14px;">
-      <div class="fill" style="width:${programProgress}%"></div>
-    </div>
-    <div class="row wrap" style="gap:6px;">
-      ${Array.from({length: totalWeeks}, (_, i) => {
-        const done = i < week;
-        const cur = i === week;
-        return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
-      }).join('')}
-    </div>
+    ${order.map(i => dayCardHtml(template[i], i)).join('')}
   `;
 };
 
 function dayCardHtml(day, i) {
   const done = dayIsDoneThisWeek(i);
   const isNext = !done && nextDayIndex() === i;
+  const isExpanded = expandedDayIdx === i;
   const session = done ? sessionForDayThisWeek(i) : null;
   const exCount = day.exercises.length;
   const setCount = day.exercises.reduce((n, e) => n + e.sets, 0);
 
+  const exList = `
+    <div style="margin:10px 0 4px;">
+      ${day.exercises.map(e => `
+        <div class="row" style="padding:3px 0; font-size:14px;">
+          <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
+          <span style="flex:1;">${esc(e.name)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
   if (done) {
     return `
-      <div class="card compact" style="opacity:0.7;">
-        <div class="row between">
-          <div class="row" style="gap:10px;">
-            <div class="day-check">✓</div>
-            <div>
-              <h3>${esc(day.name)}</h3>
-              <div class="faint">${session ? 'Done ' + fmtDate(session.date) : 'Done'}</div>
-            </div>
-          </div>
-          <span class="badge success">Done</span>
+      <div class="day-row done">
+        <div class="day-check small">✓</div>
+        <div class="day-row-main">
+          <div class="name">${esc(day.name)}</div>
+          <div class="meta">${session ? 'Done ' + fmtDate(session.date) : 'Done'}</div>
         </div>
       </div>
     `;
   }
 
-  return `
-    <div class="card ${isNext ? 'card-next' : ''}" data-day-card="${i}">
-      <div class="row between" style="margin-bottom:6px;">
-        <div>
-          ${isNext ? '<div class="subtle">Next up</div>' : ''}
-          <h3>${esc(day.name)}</h3>
-        </div>
-        <span class="badge">${exCount} ex · ${setCount} sets</span>
-      </div>
-      <div style="margin:10px 0 4px;">
-        ${day.exercises.map(e => `
-          <div class="row" style="padding:3px 0; font-size:14px;">
-            <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
-            <span style="flex:1;">${esc(e.name)}</span>
+  if (isNext) {
+    return `
+      <div class="card card-next">
+        <div class="row between" style="margin-bottom:6px;">
+          <div>
+            <div class="subtle">Next up</div>
+            <h3>${esc(day.name)}</h3>
           </div>
-        `).join('')}
+          <span class="badge">${exCount} ex · ${setCount} sets</span>
+        </div>
+        ${exList}
+        <button class="btn" data-start-day="${i}" style="margin-top:12px;">Start ${esc(day.name)}</button>
       </div>
-      <button class="btn ${isNext ? '' : 'secondary'}" data-start-day="${i}" style="margin-top:12px;">Start ${esc(day.name)}</button>
+    `;
+  }
+
+  // Other undone: compact, tap to expand exercises
+  return `
+    <div class="day-row compact ${isExpanded ? 'expanded' : ''}" data-expand-day="${i}">
+      <div class="day-row-head">
+        <div class="day-row-main">
+          <div class="name">${esc(day.name)}</div>
+          <div class="meta">${exCount} ex · ${setCount} sets</div>
+        </div>
+        <span class="chevron" aria-hidden="true">${isExpanded ? '▾' : '▸'}</span>
+        <button class="btn secondary small" data-start-day="${i}">Start</button>
+      </div>
+      ${isExpanded ? `<div class="day-row-detail">${exList}</div>` : ''}
     </div>
   `;
 }
@@ -1017,15 +1150,17 @@ function programCompleteView() {
 
 Views.program = function() {
   const p = state.program;
+  const week = state.currentRun.weekIndex;
+  const totalWeeks = p.weeks;
   return `
-    <h1>Program</h1>
-    <p class="subtle">${esc(p.name)}</p>
+    <h1>Settings</h1>
 
+    <h2>Program</h2>
     <div class="card">
       <div class="row between" style="margin-bottom:10px;">
         <div>
-          <h3>${p.weeks} week${p.weeks === 1 ? '' : 's'} · ${p.template.length} day${p.template.length === 1 ? '' : 's'} each week</h3>
-          <div class="subtle">Currently on Week ${Math.min(state.currentRun.weekIndex + 1, p.weeks)} of ${p.weeks}</div>
+          <h3>${esc(p.name)}</h3>
+          <div class="subtle">${p.weeks} week${p.weeks === 1 ? '' : 's'} · ${p.template.length} day${p.template.length === 1 ? '' : 's'} each week</div>
         </div>
         <button class="btn small secondary" id="edit-program">Edit</button>
       </div>
@@ -1047,7 +1182,20 @@ Views.program = function() {
       </div>
     </div>
 
-    <button class="btn ghost" id="reset-program" style="margin-top:20px; color: var(--danger);">Reset Program & History</button>
+    <h2>Progress</h2>
+    <div class="card">
+      <div class="subtle" style="margin-bottom:10px;">Currently on Week ${Math.min(week + 1, totalWeeks)} of ${totalWeeks}</div>
+      <div class="row wrap" style="gap:6px;">
+        ${Array.from({length: totalWeeks}, (_, i) => {
+          const done = i < week;
+          const cur = i === week;
+          return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <h2>Danger zone</h2>
+    <button class="btn ghost" id="reset-program" style="color: var(--danger);">Reset Program & History</button>
   `;
 };
 
@@ -1099,14 +1247,14 @@ Views.workout = function() {
   const totalEx = a.exercises.length;
   const currentExIdx = a.exercises.findIndex(e => e.sets.length < e.targetSets);
   const allDone = currentExIdx === -1;
+  const doneCount = a.exercises.filter(e => e.sets.length >= e.targetSets).length;
 
   return `
     <div class="workout-top">
-      <div class="row between">
+      <div class="row">
         <div>
           <div class="subtle">Week ${a.weekIndex + 1} · ${esc(a.dayName)}</div>
         </div>
-        <button class="btn icon" id="close-workout" title="Quit">×</button>
       </div>
       <div class="dots">
         ${a.exercises.map((e, i) => {
@@ -1121,10 +1269,10 @@ Views.workout = function() {
 
     <div class="workout-bottom">
       <div class="workout-bottom-inner">
-        ${allDone
-          ? `<button class="btn success" id="finish-workout">Finish Workout ✓</button>`
-          : `<div class="row between"><span class="subtle">${a.exercises.filter(e => e.sets.length >= e.targetSets).length} of ${totalEx} complete</span><button class="btn ghost small" id="finish-early">End Early</button></div>`
-        }
+        <div class="row between" style="align-items:center; gap:12px;">
+          <span class="subtle" style="white-space:nowrap;">${doneCount} of ${totalEx} complete</span>
+          <button class="btn ${allDone ? 'success' : ''}" id="finish-workout" style="flex:1; max-width:200px;">${allDone ? 'Finish Workout ✓' : 'Finish'}</button>
+        </div>
       </div>
     </div>
   `;
@@ -1188,11 +1336,11 @@ function setRowHtml(ex, exIdx, si, isCurrentEx) {
 
   if (logged) {
     return `
-      <div class="set-row logged">
+      <div class="set-row logged" data-edit-set="${exIdx},${si}">
         <span class="lbl">${si + 1} ✓</span>
         <span class="val">${fmtNum(logged.weight)} kg</span>
         <span class="val">× ${logged.reps}</span>
-        <button class="edit-set-btn" data-edit-set="${exIdx},${si}" title="Edit set">✎</button>
+        <span class="edit-set-btn" aria-hidden="true">✎</span>
       </div>
     `;
   }
@@ -1284,6 +1432,10 @@ function onClick(e) {
   }
 
   // Setup screen
+  if (e.target.classList.contains('step-btn')) {
+    handleStepperClick(e.target);
+    return;
+  }
   if (e.target.id === 'add-day') {
     setupDraft.days.push(makeDay());
     rerenderSetup();
@@ -1325,6 +1477,13 @@ function onClick(e) {
   // Today
   if (e.target.dataset.startDay != null) {
     startWorkout(parseInt(e.target.dataset.startDay, 10));
+    return;
+  }
+  const expandEl = e.target.closest && e.target.closest('[data-expand-day]');
+  if (expandEl && !e.target.closest('[data-start-day]')) {
+    const i = parseInt(expandEl.dataset.expandDay, 10);
+    expandedDayIdx = (expandedDayIdx === i) ? null : i;
+    render();
     return;
   }
   if (e.target.id === 'restart-program') {
@@ -1370,39 +1529,13 @@ function onClick(e) {
   }
 
   // Workout
-  if (e.target.id === 'close-workout') {
-    showModal({
-      title: 'Quit workout?',
-      body: 'Sets you\'ve logged in this session will be discarded.',
-      confirmText: 'Quit',
-      danger: true,
-      onConfirm: () => {
-        state.active = null;
-        editingSet = null;
-        closeModal();
-        setState({});
-      }
-    });
-    return;
-  }
   if (e.target.id === 'finish-workout') {
-    finishWorkout();
+    endWorkoutFlow();
     return;
   }
-  if (e.target.id === 'finish-early') {
-    showModal({
-      title: 'End workout early?',
-      body: 'Your workout will be saved but the day won\'t be marked complete. You can finish it later.',
-      confirmText: 'Save & End',
-      onConfirm: () => {
-        finishWorkout({ partial: true });
-        closeModal();
-      }
-    });
-    return;
-  }
-  if (e.target.dataset.editSet) {
-    const [exIdx, setIdx] = e.target.dataset.editSet.split(',').map(Number);
+  const editEl = e.target.closest && e.target.closest('[data-edit-set]');
+  if (editEl) {
+    const [exIdx, setIdx] = editEl.dataset.editSet.split(',').map(Number);
     editingSet = { exIdx, setIdx };
     render();
     return;
@@ -1456,16 +1589,17 @@ function onClick(e) {
     if (fn) fn();
     return;
   }
+  if (e.target.id === 'modal-extra') {
+    const fn = modal && modal.extraAction && modal.extraAction.onClick;
+    if (fn) fn();
+    return;
+  }
 }
 
 function onInput(e) {
   // Setup live edits
   if (e.target.id === 'prog-name') {
     setupDraft.name = e.target.value;
-    return;
-  }
-  if (e.target.id === 'prog-weeks') {
-    setupDraft.weeks = Math.max(1, parseInt(e.target.value) || 1);
     return;
   }
   if (e.target.classList.contains('day-name')) {
@@ -1527,6 +1661,34 @@ function rerenderSetup() {
   app.innerHTML = Views.setup();
 }
 
+function handleStepperClick(btn) {
+  const delta = parseInt(btn.dataset.step, 10);
+  const stepper = btn.closest('.stepper');
+  if (!stepper) return;
+  // Program-level stepper (weeks)
+  if (stepper.dataset.stepperTarget === 'weeks') {
+    setupDraft.weeks = clampStepper(setupDraft.weeks + delta, 1, 52);
+    rerenderSetup();
+    return;
+  }
+  // Per-exercise stepper (sets or reps)
+  const field = stepper.dataset.f;
+  if (!field) return;
+  const dayEl = btn.closest('[data-day]');
+  const exEl = btn.closest('[data-ex]');
+  if (!dayEl || !exEl) return;
+  const di = +dayEl.dataset.day;
+  const ei = +exEl.dataset.ex;
+  const max = field === 'sets' ? 20 : 100;
+  const ex = setupDraft.days[di].exercises[ei];
+  ex[field] = clampStepper((ex[field] || 1) + delta, 1, max);
+  rerenderSetup();
+}
+
+function clampStepper(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 function saveSetup() {
   setupDraft.name = (setupDraft.name || '').trim() || 'My Program';
   // Validate: at least one day, each day has at least one exercise with a name
@@ -1580,6 +1742,7 @@ function startWorkout(dayIndex) {
   const day = state.program.template[dayIndex];
   if (!day) return;
   editingSet = null;
+  expandedDayIdx = null;
   state.active = {
     weekIndex: state.currentRun.weekIndex,
     dayIndex,
@@ -1594,6 +1757,55 @@ function startWorkout(dayIndex) {
   };
   save();
   render();
+}
+
+function endWorkoutFlow() {
+  const a = state.active;
+  if (!a) return;
+  const fullyComplete = a.exercises.every(e => e.sets.length >= e.targetSets);
+  const anyLogged = a.exercises.some(e => e.sets.length > 0);
+
+  if (fullyComplete) {
+    finishWorkout();
+    return;
+  }
+
+  if (!anyLogged) {
+    showModal({
+      title: 'Discard workout?',
+      body: 'You haven\'t logged any sets yet.',
+      confirmText: 'Discard',
+      danger: true,
+      onConfirm: () => {
+        state.active = null;
+        editingSet = null;
+        closeModal();
+        setState({});
+      }
+    });
+    return;
+  }
+
+  // Partial — give the choice between Save & End and Discard
+  showModal({
+    title: 'Save your progress?',
+    body: 'You haven\'t finished every exercise. Save what you\'ve done so far, or discard the workout?',
+    confirmText: 'Save & End',
+    onConfirm: () => {
+      finishWorkout({ partial: true });
+      closeModal();
+    },
+    extraAction: {
+      label: 'Discard workout',
+      danger: true,
+      onClick: () => {
+        state.active = null;
+        editingSet = null;
+        closeModal();
+        setState({});
+      }
+    }
+  });
 }
 
 function saveEditedSet(row) {
@@ -1619,6 +1831,8 @@ function logCurrentSet(row) {
   const exIdx = +card.dataset.exIdx;
   const ex = state.active.exercises[exIdx];
   ex.sets.push({ weight: w, reps: r, ts: Date.now() });
+  const exJustCompleted = ex.sets.length === ex.targetSets;
+  buzz(exJustCompleted ? [20, 40, 20] : 12);
   save();
   render();
   // After render, focus the next active input if there is one
@@ -1729,6 +1943,9 @@ function finishWorkout(opts = {}) {
     weekComplete,
     programComplete
   };
+  if (programComplete) buzz([80, 60, 80, 60, 80, 60, 200]);
+  else if (weekComplete) buzz([60, 80, 60, 80, 60]);
+  else if (fullyComplete) buzz([30, 60, 30]);
   state.active = null;
   editingSet = null;
   save();
@@ -1761,6 +1978,7 @@ function renderModal() {
           ${modal.hideCancel ? '' : `<button class="btn secondary" id="modal-cancel">Cancel</button>`}
           <button class="btn" id="modal-confirm" style="${modal.danger ? 'background: var(--danger);' : ''}">${esc(modal.confirmText || 'OK')}</button>
         </div>
+        ${modal.extraAction ? `<button class="modal-extra ${modal.extraAction.danger ? 'danger' : ''}" id="modal-extra">${esc(modal.extraAction.label)}</button>` : ''}
       </div>
     </div>
   `;
