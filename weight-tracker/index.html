@@ -765,7 +765,42 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v10 · no double-tap zoom';
+const APP_VERSION = 'v11 · exercise library';
+
+const EXERCISE_LIBRARY = [
+  // Squat / quad
+  'Back Squat', 'Front Squat', 'Goblet Squat', 'Hack Squat', 'Bulgarian Split Squat',
+  'Leg Press', 'Lunge', 'Walking Lunge', 'Step-Up', 'Leg Extension',
+  // Hinge / posterior chain
+  'Deadlift', 'Romanian Deadlift', 'Sumo Deadlift', 'Stiff-Leg Deadlift',
+  'Hip Thrust', 'Glute Bridge', 'Good Morning', 'Leg Curl', 'Kettlebell Swing',
+  // Calves
+  'Standing Calf Raise', 'Seated Calf Raise',
+  // Push horizontal
+  'Bench Press', 'Incline Bench Press', 'Decline Bench Press', 'Close-Grip Bench Press',
+  'Dumbbell Bench Press', 'Incline Dumbbell Press', 'Dumbbell Fly', 'Cable Fly',
+  'Dumbbell Pullover', 'Push-Up', 'Diamond Push-Up', 'Dip',
+  // Pull horizontal
+  'Bent-Over Row', 'Pendlay Row', 'T-Bar Row', 'Seated Cable Row', 'Dumbbell Row',
+  'Inverted Row', 'Chest-Supported Row', 'Face Pull',
+  // Pull vertical
+  'Pull-Up', 'Chin-Up', 'Lat Pulldown', 'Straight-Arm Pulldown',
+  // Shoulders
+  'Overhead Press', 'Dumbbell Shoulder Press', 'Arnold Press', 'Push Press',
+  'Lateral Raise', 'Cable Lateral Raise', 'Front Raise', 'Rear Delt Fly',
+  'Upright Row', 'Shrug',
+  // Biceps
+  'Barbell Curl', 'EZ-Bar Curl', 'Dumbbell Curl', 'Hammer Curl',
+  'Preacher Curl', 'Cable Curl', 'Concentration Curl', 'Incline Dumbbell Curl',
+  // Triceps
+  'Tricep Pushdown', 'Skull Crusher', 'Overhead Tricep Extension',
+  'Tricep Dip', 'Tricep Kickback', 'Cable Overhead Extension',
+  // Core
+  'Plank', 'Side Plank', 'Hanging Leg Raise', 'Cable Crunch', 'Russian Twist',
+  'Ab Wheel Rollout', 'Sit-Up', 'Crunch', 'Mountain Climber', 'Pallof Press',
+  // Olympic / total body
+  'Power Clean', 'Clean and Press', 'Snatch', 'Farmer’s Walk', 'Turkish Get-Up'
+];
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
@@ -1088,12 +1123,19 @@ function exEditorHtml(ex, j) {
 };
 
 function exerciseNameSuggestions() {
-  const set = new Set();
-  state.sessions.forEach(s => s.exercises.forEach(e => { if (e.name) set.add(e.name); }));
+  // lowercase key → display name. Library wins casing; user-entered names from
+  // sessions/template fill in anything the library doesn't already cover.
+  const map = new Map();
+  EXERCISE_LIBRARY.forEach(n => map.set(n.toLowerCase(), n));
+  state.sessions.forEach(s => s.exercises.forEach(e => {
+    if (e.name && !map.has(e.name.toLowerCase())) map.set(e.name.toLowerCase(), e.name);
+  }));
   if (state.program) {
-    state.program.template.forEach(d => d.exercises.forEach(e => { if (e.name) set.add(e.name); }));
+    state.program.template.forEach(d => d.exercises.forEach(e => {
+      if (e.name && !map.has(e.name.toLowerCase())) map.set(e.name.toLowerCase(), e.name);
+    }));
   }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
+  return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
 }
 
 Views.today = function() {
