@@ -327,17 +327,19 @@
     background: var(--border);
     color: var(--text-faint);
   }
-  .edit-set-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-dim);
-    font-size: 16px;
+  .set-row.logged {
     cursor: pointer;
-    padding: 6px;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.12s ease;
     border-radius: var(--radius-sm);
-    justify-self: end;
   }
-  .edit-set-btn:active { background: var(--bg); }
+  .set-row.logged:active { background: var(--bg); }
+  .edit-set-btn {
+    color: var(--text-faint);
+    font-size: 18px;
+    justify-self: end;
+    pointer-events: none;
+  }
   .set-row.editing {
     grid-template-columns: 48px 1fr 1fr 96px;
     background: var(--accent-dim);
@@ -712,7 +714,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v6 · edit sets';
+const APP_VERSION = 'v7 · UX pass';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
@@ -793,6 +795,11 @@ function save() {
     }
     return false;
   }
+}
+
+function buzz(pattern) {
+  // No-op on iOS Safari (Vibration API unsupported). Works on Android Chrome / many PWAs.
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
 }
 
 function storageWorks() {
@@ -1329,11 +1336,11 @@ function setRowHtml(ex, exIdx, si, isCurrentEx) {
 
   if (logged) {
     return `
-      <div class="set-row logged">
+      <div class="set-row logged" data-edit-set="${exIdx},${si}">
         <span class="lbl">${si + 1} ✓</span>
         <span class="val">${fmtNum(logged.weight)} kg</span>
         <span class="val">× ${logged.reps}</span>
-        <button class="edit-set-btn" data-edit-set="${exIdx},${si}" title="Edit set">✎</button>
+        <span class="edit-set-btn" aria-hidden="true">✎</span>
       </div>
     `;
   }
@@ -1526,8 +1533,9 @@ function onClick(e) {
     endWorkoutFlow();
     return;
   }
-  if (e.target.dataset.editSet) {
-    const [exIdx, setIdx] = e.target.dataset.editSet.split(',').map(Number);
+  const editEl = e.target.closest && e.target.closest('[data-edit-set]');
+  if (editEl) {
+    const [exIdx, setIdx] = editEl.dataset.editSet.split(',').map(Number);
     editingSet = { exIdx, setIdx };
     render();
     return;
@@ -1823,6 +1831,8 @@ function logCurrentSet(row) {
   const exIdx = +card.dataset.exIdx;
   const ex = state.active.exercises[exIdx];
   ex.sets.push({ weight: w, reps: r, ts: Date.now() });
+  const exJustCompleted = ex.sets.length === ex.targetSets;
+  buzz(exJustCompleted ? [20, 40, 20] : 12);
   save();
   render();
   // After render, focus the next active input if there is one
@@ -1933,6 +1943,9 @@ function finishWorkout(opts = {}) {
     weekComplete,
     programComplete
   };
+  if (programComplete) buzz([80, 60, 80, 60, 80, 60, 200]);
+  else if (weekComplete) buzz([60, 80, 60, 80, 60]);
+  else if (fullyComplete) buzz([30, 60, 30]);
   state.active = null;
   editingSet = null;
   save();
