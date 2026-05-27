@@ -611,6 +611,37 @@
     font-size: 15px; font-weight: 700;
     flex-shrink: 0;
   }
+  .day-check.small { width: 22px; height: 22px; font-size: 13px; }
+
+  .day-row {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    box-shadow: var(--shadow);
+  }
+  .day-row.compact { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .day-row.done {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    opacity: 0.75;
+  }
+  .day-row-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .day-row-main { flex: 1; min-width: 0; }
+  .day-row-main .name { font-size: 16px; font-weight: 600; }
+  .day-row-main .meta { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+  .chevron { color: var(--text-faint); font-size: 14px; }
+  .day-row-detail {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
 
   .card-next {
     border: 2px solid var(--accent);
@@ -630,7 +661,7 @@
 <div id="app"></div>
 <nav id="tabs" hidden>
   <button class="tab" data-tab="today"><span class="ico">⌂</span><span>Today</span></button>
-  <button class="tab" data-tab="program"><span class="ico">≡</span><span>Program</span></button>
+  <button class="tab" data-tab="program"><span class="ico">⚙</span><span>Settings</span></button>
   <button class="tab" data-tab="history"><span class="ico">◷</span><span>History</span></button>
 </nav>
 
@@ -654,6 +685,7 @@ const DEFAULT_STATE = {
 let state = load();
 let setupDraft = null;  // { name, weeks, days: [...] } while editing in setup screen
 let editingSet = null;  // { exIdx, setIdx } when a logged set is being edited
+let expandedDayIdx = null;  // index of compact day-card whose detail is expanded on Today
 let modal = null;
 
 function load() {
@@ -922,90 +954,102 @@ Views.today = function() {
     return programCompleteView();
   }
   const lvl = levelFromXp(state.stats.xp);
+  const program = state.program;
   const week = state.currentRun.weekIndex;
-  const totalWeeks = state.program.weeks;
-  const template = state.program.template;
+  const totalWeeks = program.weeks;
+  const template = program.template;
   const doneCount = state.currentRun.completedDayIndices.length;
-  const remainingCount = template.length - doneCount;
-  const weekProgress = (doneCount / template.length * 100).toFixed(0);
-  const programProgress = (week / totalWeeks * 100).toFixed(0);
+  const overallDone = week * template.length + doneCount;
+  const overallTotal = totalWeeks * template.length;
+  const overallPct = (overallDone / overallTotal * 100).toFixed(0);
+
+  // Order cards: next-up first, other undone, then done last
+  const nextIdx = nextDayIndex();
+  const order = [];
+  if (nextIdx >= 0) order.push(nextIdx);
+  template.forEach((_, i) => { if (i !== nextIdx && !dayIsDoneThisWeek(i)) order.push(i); });
+  template.forEach((_, i) => { if (dayIsDoneThisWeek(i)) order.push(i); });
 
   return `
-    <h1>Today</h1>
-    <p class="subtle">${esc(state.program.name)} · Week ${week + 1} of ${totalWeeks}</p>
+    <div class="row between" style="align-items:baseline;">
+      <h1>Today</h1>
+      <button class="btn ghost small" id="edit-program">Edit program</button>
+    </div>
+    <p class="subtle">${esc(program.name)} · Week ${week + 1} of ${totalWeeks} · ${doneCount} of ${template.length} done</p>
 
-    <div class="stats">
+    <div class="stats" style="grid-template-columns: 1fr 1fr;">
       <div class="stat"><div class="v">🔥 ${state.stats.streak}</div><div class="k">Streak</div></div>
       <div class="stat"><div class="v">Lv ${lvl}</div><div class="k">${state.stats.xp} XP</div></div>
-      <div class="stat"><div class="v">${doneCount}/${template.length}</div><div class="k">This Week</div></div>
     </div>
 
-    <h2>This Week</h2>
-    <div class="progress-bar" style="margin-bottom:14px;">
-      <div class="fill" style="width:${weekProgress}%"></div>
+    <div class="progress-bar" style="margin: 18px 0 4px;">
+      <div class="fill" style="width:${overallPct}%"></div>
     </div>
+    <p class="subtle mono" style="margin: 0 0 20px; font-size: 12px;">${overallPct}% of program complete</p>
 
-    <div>
-      ${template.map((d, i) => dayCardHtml(d, i)).join('')}
-    </div>
-
-    <h2 style="margin-top:24px;">Program Progress</h2>
-    <p class="subtle" style="margin-top:-8px;">Week ${week + 1} of ${totalWeeks} · ${programProgress}% complete</p>
-    <div class="progress-bar" style="margin-bottom:14px;">
-      <div class="fill" style="width:${programProgress}%"></div>
-    </div>
-    <div class="row wrap" style="gap:6px;">
-      ${Array.from({length: totalWeeks}, (_, i) => {
-        const done = i < week;
-        const cur = i === week;
-        return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
-      }).join('')}
-    </div>
+    ${order.map(i => dayCardHtml(template[i], i)).join('')}
   `;
 };
 
 function dayCardHtml(day, i) {
   const done = dayIsDoneThisWeek(i);
   const isNext = !done && nextDayIndex() === i;
+  const isExpanded = expandedDayIdx === i;
   const session = done ? sessionForDayThisWeek(i) : null;
   const exCount = day.exercises.length;
   const setCount = day.exercises.reduce((n, e) => n + e.sets, 0);
 
+  const exList = `
+    <div style="margin:10px 0 4px;">
+      ${day.exercises.map(e => `
+        <div class="row" style="padding:3px 0; font-size:14px;">
+          <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
+          <span style="flex:1;">${esc(e.name)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
   if (done) {
     return `
-      <div class="card compact" style="opacity:0.7;">
-        <div class="row between">
-          <div class="row" style="gap:10px;">
-            <div class="day-check">✓</div>
-            <div>
-              <h3>${esc(day.name)}</h3>
-              <div class="faint">${session ? 'Done ' + fmtDate(session.date) : 'Done'}</div>
-            </div>
-          </div>
-          <span class="badge success">Done</span>
+      <div class="day-row done">
+        <div class="day-check small">✓</div>
+        <div class="day-row-main">
+          <div class="name">${esc(day.name)}</div>
+          <div class="meta">${session ? 'Done ' + fmtDate(session.date) : 'Done'}</div>
         </div>
       </div>
     `;
   }
 
-  return `
-    <div class="card ${isNext ? 'card-next' : ''}" data-day-card="${i}">
-      <div class="row between" style="margin-bottom:6px;">
-        <div>
-          ${isNext ? '<div class="subtle">Next up</div>' : ''}
-          <h3>${esc(day.name)}</h3>
-        </div>
-        <span class="badge">${exCount} ex · ${setCount} sets</span>
-      </div>
-      <div style="margin:10px 0 4px;">
-        ${day.exercises.map(e => `
-          <div class="row" style="padding:3px 0; font-size:14px;">
-            <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
-            <span style="flex:1;">${esc(e.name)}</span>
+  if (isNext) {
+    return `
+      <div class="card card-next">
+        <div class="row between" style="margin-bottom:6px;">
+          <div>
+            <div class="subtle">Next up</div>
+            <h3>${esc(day.name)}</h3>
           </div>
-        `).join('')}
+          <span class="badge">${exCount} ex · ${setCount} sets</span>
+        </div>
+        ${exList}
+        <button class="btn" data-start-day="${i}" style="margin-top:12px;">Start ${esc(day.name)}</button>
       </div>
-      <button class="btn ${isNext ? '' : 'secondary'}" data-start-day="${i}" style="margin-top:12px;">Start ${esc(day.name)}</button>
+    `;
+  }
+
+  // Other undone: compact, tap to expand exercises
+  return `
+    <div class="day-row compact ${isExpanded ? 'expanded' : ''}" data-expand-day="${i}">
+      <div class="day-row-head">
+        <div class="day-row-main">
+          <div class="name">${esc(day.name)}</div>
+          <div class="meta">${exCount} ex · ${setCount} sets</div>
+        </div>
+        <span class="chevron" aria-hidden="true">${isExpanded ? '▾' : '▸'}</span>
+        <button class="btn secondary small" data-start-day="${i}">Start</button>
+      </div>
+      ${isExpanded ? `<div class="day-row-detail">${exList}</div>` : ''}
     </div>
   `;
 }
@@ -1029,15 +1073,17 @@ function programCompleteView() {
 
 Views.program = function() {
   const p = state.program;
+  const week = state.currentRun.weekIndex;
+  const totalWeeks = p.weeks;
   return `
-    <h1>Program</h1>
-    <p class="subtle">${esc(p.name)}</p>
+    <h1>Settings</h1>
 
+    <h2>Program</h2>
     <div class="card">
       <div class="row between" style="margin-bottom:10px;">
         <div>
-          <h3>${p.weeks} week${p.weeks === 1 ? '' : 's'} · ${p.template.length} day${p.template.length === 1 ? '' : 's'} each week</h3>
-          <div class="subtle">Currently on Week ${Math.min(state.currentRun.weekIndex + 1, p.weeks)} of ${p.weeks}</div>
+          <h3>${esc(p.name)}</h3>
+          <div class="subtle">${p.weeks} week${p.weeks === 1 ? '' : 's'} · ${p.template.length} day${p.template.length === 1 ? '' : 's'} each week</div>
         </div>
         <button class="btn small secondary" id="edit-program">Edit</button>
       </div>
@@ -1059,7 +1105,20 @@ Views.program = function() {
       </div>
     </div>
 
-    <button class="btn ghost" id="reset-program" style="margin-top:20px; color: var(--danger);">Reset Program & History</button>
+    <h2>Progress</h2>
+    <div class="card">
+      <div class="subtle" style="margin-bottom:10px;">Currently on Week ${Math.min(week + 1, totalWeeks)} of ${totalWeeks}</div>
+      <div class="row wrap" style="gap:6px;">
+        ${Array.from({length: totalWeeks}, (_, i) => {
+          const done = i < week;
+          const cur = i === week;
+          return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <h2>Danger zone</h2>
+    <button class="btn ghost" id="reset-program" style="color: var(--danger);">Reset Program & History</button>
   `;
 };
 
@@ -1339,6 +1398,13 @@ function onClick(e) {
     startWorkout(parseInt(e.target.dataset.startDay, 10));
     return;
   }
+  const expandEl = e.target.closest && e.target.closest('[data-expand-day]');
+  if (expandEl && !e.target.closest('[data-start-day]')) {
+    const i = parseInt(expandEl.dataset.expandDay, 10);
+    expandedDayIdx = (expandedDayIdx === i) ? null : i;
+    render();
+    return;
+  }
   if (e.target.id === 'restart-program') {
     showModal({
       title: 'Start program over?',
@@ -1570,6 +1636,7 @@ function startWorkout(dayIndex) {
   const day = state.program.template[dayIndex];
   if (!day) return;
   editingSet = null;
+  expandedDayIdx = null;
   state.active = {
     weekIndex: state.currentRun.weekIndex,
     dayIndex,
