@@ -43,6 +43,7 @@
     line-height: 1.4;
     min-height: 100vh;
     overscroll-behavior-y: contain;
+    touch-action: manipulation;
   }
   #app {
     max-width: 640px;
@@ -764,7 +765,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v9 · unified controls';
+const APP_VERSION = 'v10 · no double-tap zoom';
 const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
