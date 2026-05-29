@@ -1239,6 +1239,8 @@ Views.today = function() {
     </div>
     <p class="subtle">${esc(program.name)} · Week ${week + 1} of ${totalWeeks} · ${doneCount} of ${template.length} done</p>
 
+    ${weekProgressHtml()}
+
     <div class="stats" style="grid-template-columns: 1fr 1fr;">
       <div class="stat"><div class="v">🔥 ${state.stats.streak}</div><div class="k">Streak</div></div>
       <div class="stat"><div class="v">Lv ${lvl}</div><div class="k">${state.stats.xp} XP</div></div>
@@ -1252,6 +1254,23 @@ Views.today = function() {
     ${order.map(i => dayCardHtml(template[i], i)).join('')}
   `;
 };
+
+function weekProgressHtml() {
+  const week = state.currentRun.weekIndex;
+  const totalWeeks = state.program.weeks;
+  return `
+    <div class="card">
+      <div class="subtle" style="margin-bottom:10px;">Currently on Week ${Math.min(week + 1, totalWeeks)} of ${totalWeeks}</div>
+      <div class="row wrap" style="gap:6px;">
+        ${Array.from({length: totalWeeks}, (_, i) => {
+          const done = i < week;
+          const cur = i === week;
+          return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
 
 function dayCardHtml(day, i) {
   const done = dayIsDoneThisWeek(i);
@@ -1335,8 +1354,6 @@ function programCompleteView() {
 
 Views.program = function() {
   const p = state.program;
-  const week = state.currentRun.weekIndex;
-  const totalWeeks = p.weeks;
   return `
     <h1>Settings</h1>
 
@@ -1364,18 +1381,6 @@ Views.program = function() {
             `).join('')}
           </div>
         `).join('')}
-      </div>
-    </div>
-
-    <h2>Progress</h2>
-    <div class="card">
-      <div class="subtle" style="margin-bottom:10px;">Currently on Week ${Math.min(week + 1, totalWeeks)} of ${totalWeeks}</div>
-      <div class="row wrap" style="gap:6px;">
-        ${Array.from({length: totalWeeks}, (_, i) => {
-          const done = i < week;
-          const cur = i === week;
-          return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
-        }).join('')}
       </div>
     </div>
 
