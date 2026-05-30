@@ -243,6 +243,7 @@
   }
   .dot.current { background: var(--accent); }
   .dot.done { background: var(--success); }
+  .dot.skipped { background: var(--warn); }
 
   /* Exercise card */
   .ex-card {
@@ -255,6 +256,8 @@
   }
   .ex-card.pending { opacity: 0.55; }
   .ex-card.done .ex-header { background: var(--success-dim); }
+  .ex-card.skipped .ex-header { background: #fff4e5; }
+  .ex-card.skipped .check { background: var(--warn); }
   .ex-header {
     padding: 14px 16px;
     display: flex;
@@ -278,6 +281,7 @@
   }
   .ex-target { font-size: 13px; color: var(--text-dim); padding: 0 16px 12px; }
   .ex-summary { font-size: 13px; color: var(--text-dim); padding: 0 16px 12px; font-variant-numeric: tabular-nums; }
+  .skip-ex-btn { flex-shrink: 0; }
 
   /* Set rows */
   .sets { padding: 0 12px 12px; }
@@ -838,7 +842,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v12 · week timeline';
+const APP_VERSION = 'v13 · exercise skipping';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -878,7 +882,7 @@ const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
   program: null,        // { name, weeks: 8, template: [{ name, exercises: [{ name, sets, reps }] }] }
-  sessions: [],         // [{ date, weekIndex, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }] }] }]
+  sessions: [],         // [{ date, weekIndex, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }], skipped }] }]
   active: null,         // { weekIndex, dayIndex, dayName, startedAt, exercises: [...] }
   stats: { xp: 0, streak: 0, lastDayCompleteDate: null },
   currentRun: { startedAt: null, weekIndex: 0, completedDayIndices: [] },
@@ -1012,6 +1016,20 @@ function totalVolume(exercises) {
 function setCount(exercises) {
   return exercises.reduce((n, e) => n + e.sets.length, 0);
 }
+function exerciseIsComplete(ex) {
+  return ex.sets.length >= ex.targetSets;
+}
+function exerciseIsResolved(ex) {
+  return exerciseIsComplete(ex) || !!ex.skipped;
+}
+function skippedCount(exercises) {
+  return exercises.filter(e => e.skipped).length;
+}
+function workoutSummaryText(setCountVal, volume, skippedCountVal) {
+  const parts = [`${setCountVal} sets`, `${fmtNum(volume)} kg`];
+  if (skippedCountVal) parts.push(`${skippedCountVal} skipped`);
+  return parts.join(' · ');
+}
 function levelFromXp(xp) {
   return Math.floor(Math.sqrt(xp / 100));
 }
@@ -1033,6 +1051,21 @@ function weightPrefillFor(ex, si) {
   // Set 1: take the weight from the most recent matching set in history (if any)
   const last = findLastSet(ex.name, 0);
   return last ? last.weight : '';
+}
+
+function sessionExerciseStatus(ex) {
+  const sets = ex.sets.length;
+  if (ex.skipped) {
+    return sets
+      ? `${sets} set${sets === 1 ? '' : 's'} · skipped rest`
+      : 'Skipped';
+  }
+  return `${sets} set${sets === 1 ? '' : 's'}`;
+}
+
+function sessionExerciseSetSummary(ex) {
+  if (!ex.sets.length) return ex.skipped ? 'No sets logged' : '';
+  return ex.sets.map(st => `${fmtNum(st.weight)}kg × ${st.reps}`).join(' · ');
 }
 
 function repsPrefillFor(ex, si) {
@@ -1417,10 +1450,10 @@ Views.history = function() {
             <div class="ex-detail">
               <div class="row between">
                 <span class="nm">${esc(e.name)}</span>
-                <span class="sts">${e.sets.length} set${e.sets.length === 1 ? '' : 's'}</span>
+                <span class="sts">${sessionExerciseStatus(e)}</span>
               </div>
               <div class="sts" style="margin-top:4px;">
-                ${e.sets.map(st => `${fmtNum(st.weight)}kg × ${st.reps}`).join(' · ')}
+                ${sessionExerciseSetSummary(e)}
               </div>
             </div>
           `).join('')}
@@ -1434,9 +1467,9 @@ Views.history = function() {
 Views.workout = function() {
   const a = state.active;
   const totalEx = a.exercises.length;
-  const currentExIdx = a.exercises.findIndex(e => e.sets.length < e.targetSets);
+  const currentExIdx = a.exercises.findIndex(e => !exerciseIsResolved(e));
   const allDone = currentExIdx === -1;
-  const doneCount = a.exercises.filter(e => e.sets.length >= e.targetSets).length;
+  const doneCount = a.exercises.filter(exerciseIsResolved).length;
 
   return `
     <div class="workout-top">
@@ -1447,9 +1480,10 @@ Views.workout = function() {
       </div>
       <div class="dots">
         ${a.exercises.map((e, i) => {
-          const done = e.sets.length >= e.targetSets;
+          const done = exerciseIsComplete(e);
+          const skipped = !!e.skipped;
           const cur = i === currentExIdx;
-          return `<div class="dot ${done ? 'done' : ''} ${cur ? 'current' : ''}" data-jump="${i}"></div>`;
+          return `<div class="dot ${done ? 'done' : ''} ${skipped ? 'skipped' : ''} ${cur ? 'current' : ''}" data-jump="${i}"></div>`;
         }).join('')}
       </div>
     </div>
@@ -1468,23 +1502,29 @@ Views.workout = function() {
 };
 
 function exerciseCardHtml(ex, i, currentExIdx) {
-  const done = ex.sets.length >= ex.targetSets;
+  const complete = exerciseIsComplete(ex);
+  const skipped = !!ex.skipped;
+  const done = complete || skipped;
   const pending = !done && i !== currentExIdx;
   const isCurrent = i === currentExIdx;
 
   let cardClass = 'ex-card';
-  if (done) cardClass += ' done';
+  if (complete) cardClass += ' done';
+  if (skipped) cardClass += ' skipped';
   if (pending) cardClass += ' pending';
 
   if (done) {
+    const summary = skipped
+      ? (ex.sets.length ? `${sessionExerciseSetSummary(ex)} · skipped rest` : 'Skipped')
+      : ex.sets.map(s => `${fmtNum(s.weight)}×${s.reps}`).join(' · ');
     return `
       <div class="${cardClass}" data-ex-idx="${i}">
         <div class="ex-header">
           <div class="name">${esc(ex.name)}</div>
-          <div class="progress mono">${ex.sets.length}/${ex.targetSets}</div>
-          <div class="check">✓</div>
+          <div class="progress mono">${skipped ? 'Skipped' : `${ex.sets.length}/${ex.targetSets}`}</div>
+          <div class="check">${skipped ? '–' : '✓'}</div>
         </div>
-        <div class="ex-summary">${ex.sets.map(s => `${fmtNum(s.weight)}×${s.reps}`).join(' · ')}</div>
+        <div class="ex-summary">${summary}</div>
       </div>
     `;
   }
@@ -1494,6 +1534,7 @@ function exerciseCardHtml(ex, i, currentExIdx) {
       <div class="ex-header">
         <div class="name">${esc(ex.name)}</div>
         <div class="progress mono">${ex.sets.length}/${ex.targetSets}</div>
+        ${isCurrent ? `<button class="btn ghost small skip-ex-btn" data-act="skip-ex" data-ex-idx="${i}">${ex.sets.length ? 'Skip Rest' : 'Skip'}</button>` : ''}
       </div>
       <div class="ex-target">Target: ${ex.targetSets} × ${ex.targetReps}</div>
       <div class="sets">
@@ -1590,17 +1631,17 @@ Views.celebration = function() {
     headline = `Week ${c.weekIndex + 1} Done!`;
     icon = '🎉';
     iconBg = 'var(--accent)';
-    sub = `All ${state.program.template.length} days complete · ${c.setCount} sets · ${fmtNum(c.volume)} kg`;
+    sub = `All ${state.program.template.length} days complete · ${workoutSummaryText(c.setCount, c.volume, c.skippedCount)}`;
   } else if (c.fullyComplete) {
     headline = `${esc(c.dayName)} Done!`;
     icon = '✓';
     iconBg = 'var(--success)';
-    sub = `Week ${c.weekIndex + 1} · ${c.setCount} sets · ${fmtNum(c.volume)} kg total volume`;
+    sub = `Week ${c.weekIndex + 1} · ${workoutSummaryText(c.setCount, c.volume, c.skippedCount)}`;
   } else {
     headline = 'Workout Saved';
     icon = '◐';
     iconBg = 'var(--warn)';
-    sub = `${c.setCount} sets · ${fmtNum(c.volume)} kg · day not yet complete`;
+    sub = `${workoutSummaryText(c.setCount, c.volume, c.skippedCount)} · day not yet complete`;
   }
 
   const timeline = (c.fullyComplete && !c.programComplete) ? weekTimelineHtml(c) : '';
@@ -1793,7 +1834,14 @@ function onClick(e) {
 
   // Workout
   if (e.target.id === 'finish-workout') {
+    if (withUnloggedSetGuard(endWorkoutFlow, 'Finish without set')) return;
     endWorkoutFlow();
+    return;
+  }
+  if (e.target.dataset.act === 'skip-ex') {
+    const exIdx = parseInt(e.target.dataset.exIdx, 10);
+    if (withUnloggedSetGuard(() => skipExercise(exIdx), 'Skip without set')) return;
+    skipExercise(exIdx);
     return;
   }
   const editEl = e.target.closest && e.target.closest('[data-edit-set]');
@@ -1873,7 +1921,9 @@ function onInput(e) {
 
   // Workout set inputs
   if (e.target.classList.contains('set-w') || e.target.classList.contains('set-r')) {
-    updateLogBtn(e.target.closest('.set-row'));
+    const row = e.target.closest('.set-row');
+    if (row) row.dataset.dirty = '1';
+    updateLogBtn(row);
     return;
   }
 }
@@ -1927,6 +1977,7 @@ function handleRepsStepperClick(btn) {
   const next = clampStepper(cur + delta, 1, 100);
   hidden.value = next;
   display.textContent = next;
+  row.dataset.dirty = '1';
   updateLogBtn(row);
 }
 
@@ -2021,25 +2072,98 @@ function startWorkout(dayIndex) {
       name: e.name,
       targetSets: e.sets,
       targetReps: e.reps,
-      sets: []
+      sets: [],
+      skipped: false
     }))
   };
   save();
   render();
 }
 
+function withUnloggedSetGuard(next, continueText) {
+  const row = document.querySelector('.set-row.active');
+  if (!row) return false;
+  const weightInput = row.querySelector('.set-w');
+  const repsInput = row.querySelector('.set-r');
+  if (row.dataset.dirty !== '1') return false;
+  const weightText = weightInput ? weightInput.value.trim() : '';
+  if (!weightText) return false;
+
+  const w = parseFloat(weightText);
+  const r = parseInt(repsInput && repsInput.value, 10);
+  if (isNaN(w) || w < 0 || isNaN(r) || r <= 0) {
+    showModal({
+      title: 'Check current set',
+      body: 'The current set has a value typed in, but it is not valid yet.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return true;
+  }
+
+  showModal({
+    title: 'Save current set?',
+    body: 'You have numbers typed into the current set, but it has not been logged yet.',
+    confirmText: 'Save Set',
+    onConfirm: () => {
+      closeModal();
+      logCurrentSet(row);
+      next();
+    },
+    extraAction: {
+      label: continueText || 'Continue without set',
+      onClick: () => {
+        closeModal();
+        next();
+      }
+    }
+  });
+  return true;
+}
+
+function skipExercise(exIdx) {
+  const a = state.active;
+  if (!a) return;
+  const ex = a.exercises[exIdx];
+  if (!ex || exerciseIsResolved(ex)) return;
+
+  const applySkip = () => {
+    ex.skipped = true;
+    ex.skippedAt = Date.now();
+    editingSet = null;
+    closeModal();
+    save();
+    render();
+    requestAnimationFrame(() => {
+      const nextCard = document.querySelector('.ex-card:not(.done):not(.skipped):not(.pending)');
+      if (nextCard) nextCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  showModal({
+    title: ex.sets.length ? 'Skip remaining sets?' : 'Skip exercise?',
+    body: ex.sets.length
+      ? 'Logged sets stay saved. The remaining sets for this exercise will be marked skipped.'
+      : 'This exercise will be marked skipped and the workout will move to the next exercise.',
+    confirmText: ex.sets.length ? 'Skip Rest' : 'Skip',
+    onConfirm: applySkip
+  });
+}
+
 function endWorkoutFlow() {
   const a = state.active;
   if (!a) return;
-  const fullyComplete = a.exercises.every(e => e.sets.length >= e.targetSets);
+  const fullyComplete = a.exercises.every(exerciseIsResolved);
   const anyLogged = a.exercises.some(e => e.sets.length > 0);
+  const anySkipped = a.exercises.some(e => e.skipped);
 
   if (fullyComplete) {
     finishWorkout();
     return;
   }
 
-  if (!anyLogged) {
+  if (!anyLogged && !anySkipped) {
     showModal({
       title: 'Discard workout?',
       body: 'You haven\'t logged any sets yet.',
@@ -2058,8 +2182,8 @@ function endWorkoutFlow() {
   // Partial — give the choice between Save & End and Discard
   showModal({
     title: 'Save your progress?',
-    body: 'You haven\'t finished every exercise. Save what you\'ve done so far, or discard the workout?',
-    confirmText: 'Save & End',
+    body: 'You haven\'t resolved every exercise. Save this as a partial workout, or discard it?',
+    confirmText: 'Save Partial',
     onConfirm: () => {
       finishWorkout({ partial: true });
       closeModal();
@@ -2123,7 +2247,8 @@ function finishWorkout(opts = {}) {
   const a = state.active;
   if (!a) return;
   const exsWithSets = a.exercises.filter(e => e.sets.length > 0);
-  if (!exsWithSets.length) {
+  const sessionExercises = a.exercises.filter(e => e.sets.length > 0 || e.skipped);
+  if (!sessionExercises.length) {
     state.active = null;
     editingSet = null;
     save();
@@ -2137,45 +2262,55 @@ function finishWorkout(opts = {}) {
     dayIndex: a.dayIndex,
     dayName: a.dayName,
     durationMs: Date.now() - a.startedAt,
-    exercises: exsWithSets.map(e => ({ name: e.name, sets: e.sets }))
+    exercises: sessionExercises.map(e => ({
+      name: e.name,
+      sets: e.sets,
+      skipped: !!e.skipped,
+      skippedAt: e.skippedAt || null,
+      targetSets: e.targetSets,
+      targetReps: e.targetReps
+    }))
   };
   state.sessions.push(session);
 
-  // Determine if day is fully complete
+  // Determine if the day has been resolved: every exercise logged or explicitly skipped.
   const fullyComplete = !opts.partial &&
-    a.exercises.every(e => e.sets.length >= e.targetSets);
+    a.exercises.every(exerciseIsResolved);
 
   let xpEarned = 0;
   let weekComplete = false;
   let programComplete = false;
   const prevLvl = levelFromXp(state.stats.xp);
+  const loggedSetCount = setCount(exsWithSets);
 
   // XP per set
   exsWithSets.forEach(e => { xpEarned += e.sets.length * 10; });
   // Exercise complete bonus
   exsWithSets.forEach(e => {
-    if (e.sets.length >= e.targetSets) xpEarned += 25;
+    if (!e.skipped && exerciseIsComplete(e)) xpEarned += 25;
   });
 
   if (fullyComplete) {
-    xpEarned += 100;
+    if (loggedSetCount > 0) xpEarned += 100;
 
     // Streak (per workout day)
     const today = Date.now();
-    const last = state.stats.lastDayCompleteDate;
-    if (last) {
-      const gap = daysBetween(last, today);
-      if (gap === 0) {
-        // same day, no change
-      } else if (gap <= 2) {
-        state.stats.streak += 1;
+    if (loggedSetCount > 0) {
+      const last = state.stats.lastDayCompleteDate;
+      if (last) {
+        const gap = daysBetween(last, today);
+        if (gap === 0) {
+          // same day, no change
+        } else if (gap <= 2) {
+          state.stats.streak += 1;
+        } else {
+          state.stats.streak = 1;
+        }
       } else {
         state.stats.streak = 1;
       }
-    } else {
-      state.stats.streak = 1;
+      state.stats.lastDayCompleteDate = today;
     }
-    state.stats.lastDayCompleteDate = today;
 
     // Mark this day done this week (if not already)
     if (!state.currentRun.completedDayIndices.includes(a.dayIndex)) {
@@ -2213,8 +2348,9 @@ function finishWorkout(opts = {}) {
     dayName: a.dayName,
     dayIndex: a.dayIndex,
     weekIndex: a.weekIndex,
-    setCount: setCount(exsWithSets),
+    setCount: loggedSetCount,
     volume: totalVolume(exsWithSets),
+    skippedCount: skippedCount(a.exercises),
     xpEarned,
     leveledUp,
     fullyComplete,
