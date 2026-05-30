@@ -749,6 +749,7 @@
     border-radius: 8px;
   }
   .badge.success { background: var(--success-dim); color: var(--success); }
+  .badge.warn { background: #fff4e5; color: var(--warn); }
 
   .program-summary .ex-line {
     padding: 8px 0;
@@ -794,12 +795,10 @@
     box-shadow: var(--shadow);
   }
   .day-row.compact { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
-  .day-row.done {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    opacity: 0.75;
+  .day-row.done { opacity: 0.86; }
+  .day-row.done.just-completed {
+    border: 2px solid var(--success);
+    opacity: 1;
   }
   .day-row-head {
     display: flex;
@@ -814,6 +813,20 @@
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid var(--border);
+  }
+  .session-ex-row {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .session-ex-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .session-ex-row .nm { font-weight: 500; font-size: 14px; }
+  .session-ex-row .sts { color: var(--text-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .session-ex-row.skipped .sts { color: var(--warn); }
+  .session-set-summary {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
   }
 
   .card-next {
@@ -842,7 +855,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v13 · exercise skipping';
+const APP_VERSION = 'v14 · today recap';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -1101,6 +1114,22 @@ function sessionForDayThisWeek(dayIndex) {
   );
 }
 
+function latestSessionThisWeek() {
+  return state.sessions.slice().reverse().find(s =>
+    s.weekIndex === state.currentRun.weekIndex &&
+    state.currentRun.completedDayIndices.includes(s.dayIndex)
+  );
+}
+
+function sessionSummaryText(session) {
+  if (!session) return 'Done';
+  return workoutSummaryText(
+    setCount(session.exercises),
+    totalVolume(session.exercises),
+    skippedCount(session.exercises)
+  );
+}
+
 /* ---------- Routing ---------- */
 function pickView() {
   if (state.celebration) return 'celebration';
@@ -1258,12 +1287,15 @@ Views.today = function() {
   const overallTotal = totalWeeks * template.length;
   const overallPct = (overallDone / overallTotal * 100).toFixed(0);
 
-  // Order cards: next-up first, other undone, then done last
+  // Order cards: most recent completed day first, next-up, other undone, then done last.
   const nextIdx = nextDayIndex();
+  const latestSession = latestSessionThisWeek();
+  const justCompletedIdx = latestSession ? latestSession.dayIndex : null;
   const order = [];
+  if (justCompletedIdx != null && dayIsDoneThisWeek(justCompletedIdx)) order.push(justCompletedIdx);
   if (nextIdx >= 0) order.push(nextIdx);
-  template.forEach((_, i) => { if (i !== nextIdx && !dayIsDoneThisWeek(i)) order.push(i); });
-  template.forEach((_, i) => { if (dayIsDoneThisWeek(i)) order.push(i); });
+  template.forEach((_, i) => { if (!order.includes(i) && !dayIsDoneThisWeek(i)) order.push(i); });
+  template.forEach((_, i) => { if (!order.includes(i) && dayIsDoneThisWeek(i)) order.push(i); });
 
   return `
     <div class="row between" style="align-items:baseline;">
@@ -1283,7 +1315,7 @@ Views.today = function() {
     </div>
     <p class="subtle mono" style="margin: 0 0 20px; font-size: 12px;">${overallPct}% of program complete</p>
 
-    ${order.map(i => dayCardHtml(template[i], i)).join('')}
+    ${order.map(i => dayCardHtml(template[i], i, i === justCompletedIdx)).join('')}
   `;
 };
 
@@ -1304,7 +1336,7 @@ function weekProgressHtml() {
   `;
 }
 
-function dayCardHtml(day, i) {
+function dayCardHtml(day, i, isJustCompleted = false) {
   const done = dayIsDoneThisWeek(i);
   const isNext = !done && nextDayIndex() === i;
   const isExpanded = expandedDayIdx === i;
@@ -1324,13 +1356,21 @@ function dayCardHtml(day, i) {
   `;
 
   if (done) {
+    const skipped = session ? skippedCount(session.exercises) : 0;
+    const summary = sessionSummaryText(session);
     return `
-      <div class="day-row done">
-        <div class="day-check small">✓</div>
-        <div class="day-row-main">
-          <div class="name">${esc(day.name)}</div>
-          <div class="meta">${session ? 'Done ' + fmtDate(session.date) : 'Done'}</div>
+      <div class="day-row compact done ${isExpanded ? 'expanded' : ''} ${isJustCompleted ? 'just-completed' : ''}" data-expand-day="${i}">
+        <div class="day-row-head">
+          <div class="day-check small">✓</div>
+          <div class="day-row-main">
+            ${isJustCompleted ? `<div class="subtle">Just completed</div>` : ''}
+            <div class="name">${esc(day.name)}</div>
+            <div class="meta">${session ? 'Done ' + fmtDate(session.date) + ' · ' + summary : 'Done'}</div>
+          </div>
+          ${skipped ? `<span class="badge warn">${skipped} skipped</span>` : `<span class="badge success">Done</span>`}
+          <span class="chevron" aria-hidden="true">${isExpanded ? '▾' : '▸'}</span>
         </div>
+        ${isExpanded ? completedSessionDetailHtml(session) : ''}
       </div>
     `;
   }
@@ -1363,6 +1403,25 @@ function dayCardHtml(day, i) {
         <button class="btn secondary small" data-start-day="${i}">Start</button>
       </div>
       ${isExpanded ? `<div class="day-row-detail">${exList}</div>` : ''}
+    </div>
+  `;
+}
+
+function completedSessionDetailHtml(session) {
+  if (!session) {
+    return `<div class="day-row-detail"><div class="faint">No session details saved for this day.</div></div>`;
+  }
+  return `
+    <div class="day-row-detail">
+      ${session.exercises.map(e => `
+        <div class="session-ex-row ${e.skipped ? 'skipped' : ''}">
+          <div class="row between">
+            <span class="nm">${esc(e.name)}</span>
+            <span class="sts">${sessionExerciseStatus(e)}</span>
+          </div>
+          <div class="session-set-summary">${sessionExerciseSetSummary(e)}</div>
+        </div>
+      `).join('')}
     </div>
   `;
 }
@@ -1872,6 +1931,10 @@ function onClick(e) {
   }
 
   if (e.target.id === 'celebrate-continue') {
+    const c = state.celebration;
+    if (c && c.type === 'workout' && c.fullyComplete && !c.weekComplete && !c.programComplete) {
+      expandedDayIdx = c.dayIndex;
+    }
     state.celebration = null;
     save();
     render();
