@@ -884,7 +884,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v15 · exercise library';
+const APP_VERSION = 'v16 · program context';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -1411,7 +1411,10 @@ Views.today = function() {
 
   return `
     <div class="row between" style="align-items:baseline;">
-      <h1>Today</h1>
+      <div>
+        <h1>Today</h1>
+        <div class="subtle">${esc(program.name)}</div>
+      </div>
       <button class="btn ghost small" id="edit-program">Edit program</button>
     </div>
 
@@ -1591,9 +1594,6 @@ Views.program = function() {
     <div class="card">
       ${exerciseLibraryHtml()}
     </div>
-
-    <h2>Danger zone</h2>
-    <button class="btn ghost" id="reset-program" style="color: var(--danger);">Reset Program & History</button>
   `;
 };
 
@@ -1647,6 +1647,7 @@ Views.history = function() {
         <div>No workouts logged yet.</div>
         <div class="faint" style="margin-top:8px;">Complete a workout to see it here.</div>
       </div>
+      ${historyDangerZoneHtml()}
     `;
   }
   const sorted = state.sessions.slice().sort((a, b) => b.date - a.date);
@@ -1678,8 +1679,16 @@ Views.history = function() {
       </div>
     `).join('')}
     </div>
+    ${historyDangerZoneHtml()}
   `;
 };
+
+function historyDangerZoneHtml() {
+  return `
+    <h2>Danger zone</h2>
+    <button class="btn ghost" id="reset-program" style="color: var(--danger);">Reset Program & History</button>
+  `;
+}
 
 Views.workout = function() {
   const a = state.active;
