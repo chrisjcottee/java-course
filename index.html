@@ -751,6 +751,78 @@
   .badge.success { background: var(--success-dim); color: var(--success); }
   .badge.warn { background: #fff4e5; color: var(--warn); }
 
+  .today-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .today-header h1 { font-size: 34px; line-height: 1.05; margin: 0; }
+  .program-status {
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .program-status-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .program-status .program-name {
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .program-status .program-meta {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 3px;
+  }
+  .metric-chips {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .metric-chip {
+    background: var(--bg);
+    color: var(--text-dim);
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .program-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .program-progress .progress-bar { flex: 1; height: 6px; }
+  .program-progress .progress-label {
+    color: var(--text-dim);
+    font-size: 12px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .exercise-preview-list { margin: 10px 0 4px; }
+  .exercise-preview-row {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 10px;
+    align-items: baseline;
+    padding: 3px 0;
+    font-size: 15px;
+  }
+  .exercise-preview-row .target {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
   .program-summary .ex-line {
     padding: 8px 0;
     border-bottom: 1px solid var(--border);
@@ -825,10 +897,7 @@
   }
   .day-row.compact { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
   .day-row.done { opacity: 0.86; }
-  .day-row.done.just-completed {
-    border: 2px solid var(--success);
-    opacity: 1;
-  }
+  .day-row.done.just-completed { border-left: 4px solid var(--success); opacity: 1; }
   .day-row-head {
     display: flex;
     align-items: center;
@@ -859,9 +928,12 @@
   }
 
   .card-next {
-    border: 2px solid var(--accent);
+    padding: 14px 16px;
+    border: 1px solid var(--accent);
     box-shadow: 0 1px 2px rgba(0,113,227,0.08), 0 4px 12px rgba(0,113,227,0.12);
   }
+  .card-next h3 { font-size: 22px; margin-top: 2px; }
+  .card-next .btn { padding: 12px 18px; margin-top: 14px; }
 
   .version-stamp {
     text-align: center;
@@ -884,7 +956,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v16 · program context';
+const APP_VERSION = 'v17 · today layout';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -1399,54 +1471,61 @@ Views.today = function() {
   const overallTotal = totalWeeks * template.length;
   const overallPct = (overallDone / overallTotal * 100).toFixed(0);
 
-  // Order cards: most recent completed day first, next-up, other undone, then done last.
+  // Order cards: next-up first, recent completion, other undone, then done last.
   const nextIdx = nextDayIndex();
   const latestSession = latestSessionThisWeek();
   const justCompletedIdx = latestSession ? latestSession.dayIndex : null;
   const order = [];
-  if (justCompletedIdx != null && dayIsDoneThisWeek(justCompletedIdx)) order.push(justCompletedIdx);
   if (nextIdx >= 0) order.push(nextIdx);
+  if (justCompletedIdx != null && dayIsDoneThisWeek(justCompletedIdx)) order.push(justCompletedIdx);
   template.forEach((_, i) => { if (!order.includes(i) && !dayIsDoneThisWeek(i)) order.push(i); });
   template.forEach((_, i) => { if (!order.includes(i) && dayIsDoneThisWeek(i)) order.push(i); });
 
   return `
-    <div class="row between" style="align-items:baseline;">
-      <div>
-        <h1>Today</h1>
-        <div class="subtle">${esc(program.name)}</div>
-      </div>
+    <div class="today-header">
+      <h1>Today</h1>
       <button class="btn ghost small" id="edit-program">Edit program</button>
     </div>
 
-    ${weekProgressHtml()}
-
-    <div class="stats" style="grid-template-columns: 1fr 1fr;">
-      <div class="stat"><div class="v">🔥 ${state.stats.streak}</div><div class="k">Streak</div></div>
-      <div class="stat"><div class="v">Lv ${lvl}</div><div class="k">${state.stats.xp} XP</div></div>
-    </div>
-
-    <div class="progress-bar" style="margin: 18px 0 4px;">
-      <div class="fill" style="width:${overallPct}%"></div>
-    </div>
-    <p class="subtle mono" style="margin: 0 0 20px; font-size: 12px;">${overallPct}% of program complete</p>
+    ${programStatusHtml(program, week, totalWeeks, doneCount, template.length, overallPct, lvl)}
 
     ${order.map(i => dayCardHtml(template[i], i, i === justCompletedIdx)).join('')}
   `;
 };
 
+function programStatusHtml(program, week, totalWeeks, doneCount, dayCount, overallPct, lvl) {
+  return `
+    <div class="card program-status">
+      <div class="program-status-top">
+        <div>
+          <div class="program-name">${esc(program.name)}</div>
+          <div class="program-meta">Week ${Math.min(week + 1, totalWeeks)} of ${totalWeeks} · ${doneCount} of ${dayCount} days this week</div>
+        </div>
+        <div class="metric-chips">
+          <span class="metric-chip">🔥 ${state.stats.streak}</span>
+          <span class="metric-chip">Lv ${lvl}</span>
+          <span class="metric-chip">${state.stats.xp} XP</span>
+        </div>
+      </div>
+      ${weekProgressHtml()}
+      <div class="program-progress">
+        <div class="progress-bar"><div class="fill" style="width:${overallPct}%"></div></div>
+        <span class="progress-label">${overallPct}% complete</span>
+      </div>
+    </div>
+  `;
+}
+
 function weekProgressHtml() {
   const week = state.currentRun.weekIndex;
   const totalWeeks = state.program.weeks;
   return `
-    <div class="card">
-      <div class="subtle" style="margin-bottom:10px;">Currently on Week ${Math.min(week + 1, totalWeeks)} of ${totalWeeks}</div>
-      <div class="row wrap" style="gap:6px;">
-        ${Array.from({length: totalWeeks}, (_, i) => {
-          const done = i < week;
-          const cur = i === week;
-          return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
-        }).join('')}
-      </div>
+    <div class="row wrap" style="gap:6px;">
+      ${Array.from({length: totalWeeks}, (_, i) => {
+        const done = i < week;
+        const cur = i === week;
+        return `<div class="week-pip ${done ? 'done' : ''} ${cur ? 'current' : ''}" title="Week ${i+1}">${i + 1}</div>`;
+      }).join('')}
     </div>
   `;
 }
@@ -1460,11 +1539,11 @@ function dayCardHtml(day, i, isJustCompleted = false) {
   const setCount = day.exercises.reduce((n, e) => n + e.sets, 0);
 
   const exList = `
-    <div style="margin:10px 0 4px;">
+    <div class="exercise-preview-list">
       ${day.exercises.map(e => `
-        <div class="row" style="padding:3px 0; font-size:14px;">
-          <span class="faint mono" style="min-width:60px;">${e.sets}×${e.reps}</span>
-          <span style="flex:1;">${esc(e.name)}</span>
+        <div class="exercise-preview-row">
+          <span class="target">${e.sets}×${e.reps}</span>
+          <span>${esc(e.name)}</span>
         </div>
       `).join('')}
     </div>
@@ -1501,7 +1580,7 @@ function dayCardHtml(day, i, isJustCompleted = false) {
           <span class="badge">${exCount} ex · ${setCount} sets</span>
         </div>
         ${exList}
-        <button class="btn" data-start-day="${i}" style="margin-top:12px;">Start ${esc(day.name)}</button>
+        <button class="btn" data-start-day="${i}">Start ${esc(day.name)}</button>
       </div>
     `;
   }
