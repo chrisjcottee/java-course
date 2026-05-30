@@ -851,6 +851,7 @@
     border-bottom: 1px solid var(--border);
   }
   .library-row .library-name { flex: 1; min-width: 0; font-weight: 500; }
+  .library-row .library-meta { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
   .library-row .library-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .library-row.editing {
     align-items: stretch;
@@ -956,7 +957,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v17 · today layout';
+const APP_VERSION = 'v18 · program library';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -996,6 +997,8 @@ const STORAGE_KEY = 'wt-state-v2';
 let saveErrorShown = false;
 const DEFAULT_STATE = {
   program: null,        // { name, weeks: 8, template: [{ name, exercises: [{ name, sets, reps }] }] }
+  programLibrary: [],   // [{ id, name, weeks, template, archived, createdAt, updatedAt }]
+  activeProgramId: null,
   sessions: [],         // [{ date, weekIndex, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }], skipped }] }]
   exerciseLibrary: makeInitialExerciseLibrary(),
   active: null,         // { weekIndex, dayIndex, dayName, startedAt, exercises: [...] }
@@ -1034,6 +1037,23 @@ function makeInitialExerciseLibrary() {
   return EXERCISE_LIBRARY.map(name => makeExerciseLibraryEntry(name, true));
 }
 
+function makeProgramId(name) {
+  return `program-${slugifyExerciseName(name)}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeProgramRecord(program, existing = {}) {
+  const now = Date.now();
+  return {
+    id: existing.id || makeProgramId(program.name),
+    name: String(program.name || '').trim() || 'My Program',
+    weeks: Math.max(1, parseInt(program.weeks, 10) || 1),
+    template: structuredClone(program.template || []),
+    archived: !!existing.archived,
+    createdAt: existing.createdAt || now,
+    updatedAt: now
+  };
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -1044,6 +1064,14 @@ function load() {
 
 function migrate(s) {
   s.exerciseLibrary = normalizeExerciseLibrary(s);
+  s.programLibrary = normalizeProgramLibrary(s);
+  if (!s.activeProgramId && s.programLibrary.length) {
+    s.activeProgramId = s.programLibrary.find(p => !p.archived)?.id || null;
+  }
+  if (!s.program && s.activeProgramId) {
+    const active = s.programLibrary.find(p => p.id === s.activeProgramId && !p.archived);
+    if (active) s.program = programFromRecord(active);
+  }
   if (!s.program) return s;
   // Old program shape: { name, days: [...] } → { name, weeks: 1, template: [...] }
   if (s.program.days && !s.program.template) {
@@ -1069,12 +1097,44 @@ function migrate(s) {
     newCR.completedDayIndices = Array.from({ length: remainder }, (_, i) => i);
   }
   s.currentRun = newCR;
+  s.programLibrary = normalizeProgramLibrary(s);
+  if (!s.activeProgramId && s.programLibrary.length) {
+    s.activeProgramId = s.programLibrary.find(p => !p.archived)?.id || null;
+  }
   // Ensure sessions have weekIndex
   if (Array.isArray(s.sessions)) {
     s.sessions.forEach(sess => { if (sess.weekIndex == null) sess.weekIndex = 0; });
   }
   s.exerciseLibrary = normalizeExerciseLibrary(s);
   return s;
+}
+
+function programFromRecord(record) {
+  return {
+    name: record.name,
+    weeks: record.weeks,
+    template: structuredClone(record.template || [])
+  };
+}
+
+function normalizeProgramLibrary(s) {
+  const byId = new Map();
+  const add = (program, existing = {}) => {
+    if (!program) return;
+    const record = makeProgramRecord(program, existing);
+    byId.set(record.id, record);
+  };
+
+  if (Array.isArray(s.programLibrary)) {
+    s.programLibrary.forEach(p => add(p, p));
+  }
+  if (s.program) {
+    const existingActive = s.activeProgramId && byId.get(s.activeProgramId);
+    add(s.program, existingActive || { id: s.activeProgramId || undefined });
+  }
+  return Array.from(byId.values())
+    .filter(p => !p.archived)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
 function normalizeExerciseLibrary(s) {
@@ -1099,6 +1159,9 @@ function normalizeExerciseLibrary(s) {
 
   if (Array.isArray(s.exerciseLibrary)) s.exerciseLibrary.forEach(add);
   makeInitialExerciseLibrary().forEach(entry => add(entry, { keepArchive: true }));
+  if (Array.isArray(s.programLibrary)) {
+    s.programLibrary.forEach(p => (p.template || []).forEach(d => d.exercises.forEach(e => add(makeExerciseLibraryEntry(e.name, false), { keepArchive: true }))));
+  }
   if (s.program && Array.isArray(s.program.template)) {
     s.program.template.forEach(d => d.exercises.forEach(e => add(makeExerciseLibraryEntry(e.name, false), { keepArchive: true })));
   }
@@ -1322,17 +1385,18 @@ const Views = {};
 Views.setup = function() {
   if (!setupDraft) {
     setupDraft = state.program
-      ? { name: state.program.name, weeks: state.program.weeks, days: structuredClone(state.program.template) }
-      : { name: 'My Program', weeks: 8, days: [makeDay()] };
+      ? { id: state.activeProgramId, name: state.program.name, weeks: state.program.weeks, days: structuredClone(state.program.template), makeActive: true }
+      : { id: null, name: 'My Program', weeks: 8, days: [makeDay()], makeActive: true };
   }
+  const isNew = !setupDraft.id;
   const suggestions = exerciseNameSuggestions();
   return `
     <datalist id="exercise-options">
       ${suggestions.map(n => `<option value="${esc(n)}">`).join('')}
     </datalist>
 
-    <h1>${state.program ? 'Edit Program' : 'Build Your Program'}</h1>
-    <p class="subtle">${state.program ? 'Changes apply going forward.' : 'Pick how many weeks the program runs, then add the days that repeat each week (e.g. Push, Pull, Legs). For each day, add exercises with target sets and reps. You\'ll log the weight during each workout.'}</p>
+    <h1>${isNew ? 'Create Program' : 'Edit Program'}</h1>
+    <p class="subtle">${isNew ? 'Build a reusable program for your library. You can make it active now, or switch programs later from Settings.' : 'Changes update this saved program going forward.'}</p>
 
     <div style="margin-top:20px;">
       <label class="field">
@@ -1359,8 +1423,8 @@ Views.setup = function() {
 
     <div style="height:24px"></div>
 
-    <button class="btn" id="save-program">${state.program ? 'Save Changes' : 'Start Program'}</button>
-    ${state.program ? `<button class="btn ghost" id="cancel-setup" style="margin-top:8px;">Cancel</button>` : ''}
+    <button class="btn" id="save-program">${isNew ? 'Create Program' : 'Save Program'}</button>
+    ${(state.program || state.programLibrary.length) ? `<button class="btn ghost" id="cancel-setup" style="margin-top:8px;">Cancel</button>` : ''}
   `;
 };
 
@@ -1419,6 +1483,36 @@ function exerciseNameSuggestions() {
   return activeExerciseLibrary().map(e => e.name);
 }
 
+function activeProgramLibrary() {
+  state.programLibrary = normalizeProgramLibrary(state);
+  return state.programLibrary
+    .filter(p => !p.archived)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+function findProgramRecord(id) {
+  state.programLibrary = normalizeProgramLibrary(state);
+  return state.programLibrary.find(p => p.id === id && !p.archived);
+}
+
+function setActiveProgram(id, opts = {}) {
+  const record = findProgramRecord(id);
+  if (!record) return false;
+  const sameProgram = state.activeProgramId === id;
+  state.activeProgramId = id;
+  state.program = programFromRecord(record);
+  state.active = null;
+  state.celebration = null;
+  expandedDayIdx = null;
+  if (!sameProgram || opts.resetProgress) {
+    state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
+  } else {
+    state.currentRun.weekIndex = Math.min(state.currentRun.weekIndex, state.program.weeks);
+    state.currentRun.completedDayIndices = state.currentRun.completedDayIndices.filter(i => i < state.program.template.length);
+  }
+  return true;
+}
+
 function activeExerciseLibrary() {
   state.exerciseLibrary = normalizeExerciseLibrary(state);
   return state.exerciseLibrary
@@ -1448,13 +1542,16 @@ function exerciseUsedInCurrentProgram(name) {
 }
 
 function updateProgramExerciseName(oldName, newName) {
-  if (!state.program) return;
   const oldKey = String(oldName || '').trim().toLowerCase();
-  state.program.template.forEach(d => {
+  const updateTemplate = (template) => template.forEach(d => {
     d.exercises.forEach(e => {
       if (e.name.toLowerCase() === oldKey) e.name = newName;
     });
   });
+  if (state.program) updateTemplate(state.program.template);
+  if (Array.isArray(state.programLibrary)) {
+    state.programLibrary.forEach(p => updateTemplate(p.template || []));
+  }
 }
 
 Views.today = function() {
@@ -1638,35 +1735,12 @@ function programCompleteView() {
 }
 
 Views.program = function() {
-  const p = state.program;
   return `
     <h1>Settings</h1>
 
-    <h2>Program</h2>
+    <h2>Programs</h2>
     <div class="card">
-      <div class="row between" style="margin-bottom:10px;">
-        <div>
-          <h3>${esc(p.name)}</h3>
-          <div class="subtle">${p.weeks} week${p.weeks === 1 ? '' : 's'} · ${p.template.length} day${p.template.length === 1 ? '' : 's'} each week</div>
-        </div>
-        <button class="btn small secondary" id="edit-program">Edit</button>
-      </div>
-      <div class="program-summary">
-        ${p.template.map((d, i) => `
-          <div style="margin-top:${i === 0 ? '0' : '16px'};">
-            <div class="row between" style="margin-bottom:6px;">
-              <strong>${i + 1}. ${esc(d.name || 'Day ' + (i + 1))}</strong>
-              ${dayIsDoneThisWeek(i) ? `<span class="badge success">Done this week</span>` : ''}
-            </div>
-            ${d.exercises.map(e => `
-              <div class="ex-line">
-                <span class="nm">${esc(e.name)}</span>
-                <span class="tgt">${e.sets} × ${e.reps}</span>
-              </div>
-            `).join('')}
-          </div>
-        `).join('')}
-      </div>
+      ${programLibraryHtml()}
     </div>
 
     <h2>Exercise Library</h2>
@@ -1675,6 +1749,35 @@ Views.program = function() {
     </div>
   `;
 };
+
+function programLibraryHtml() {
+  const programs = activeProgramLibrary();
+  return `
+    <button class="btn secondary" id="add-program" style="margin-bottom:12px;">+ New Program</button>
+    <div class="subtle">${programs.length} saved program${programs.length === 1 ? '' : 's'}</div>
+    <div class="library-list">
+      ${programs.length ? programs.map(programLibraryRowHtml).join('') : `<div class="empty" style="padding:24px 12px;">No saved programs yet.</div>`}
+    </div>
+  `;
+}
+
+function programLibraryRowHtml(program) {
+  const isActive = program.id === state.activeProgramId;
+  return `
+    <div class="library-row" data-program-id="${esc(program.id)}">
+      <div class="library-name">
+        <div>${esc(program.name)}</div>
+        <div class="library-meta">${program.weeks} week${program.weeks === 1 ? '' : 's'} · ${program.template.length} day${program.template.length === 1 ? '' : 's'} each week</div>
+      </div>
+      ${isActive ? `<span class="badge success">Active</span>` : ''}
+      <div class="library-actions">
+        ${isActive ? '' : `<button class="btn secondary small" data-act="use-program">Use</button>`}
+        <button class="btn secondary small" data-act="edit-program-library">Edit</button>
+        <button class="btn ghost small" data-act="delete-program-library" style="color: var(--danger);">Delete</button>
+      </div>
+    </div>
+  `;
+}
 
 function exerciseLibraryHtml() {
   const q = exerciseLibrarySearch.trim().toLowerCase();
@@ -2110,15 +2213,47 @@ function onClick(e) {
   }
 
   // Program tab
-  if (e.target.id === 'edit-program') {
-    setupDraft = {
-      name: state.program.name,
-      weeks: state.program.weeks,
-      days: structuredClone(state.program.template)
-    };
+  if (e.target.id === 'add-program') {
+    setupDraft = { id: null, name: 'New Program', weeks: 8, days: [makeDay()], makeActive: true };
     state.editing = true;
     save();
     render();
+    return;
+  }
+  if (e.target.id === 'edit-program') {
+    const active = findProgramRecord(state.activeProgramId);
+    const program = active || makeProgramRecord(state.program || { name: 'My Program', weeks: 8, template: [makeDay()] }, { id: state.activeProgramId || undefined });
+    setupDraft = { id: program.id, name: program.name, weeks: program.weeks, days: structuredClone(program.template), makeActive: true };
+    state.editing = true;
+    save();
+    render();
+    return;
+  }
+  const programRow = e.target.closest && e.target.closest('[data-program-id]');
+  if (programRow && e.target.dataset.act === 'edit-program-library') {
+    const program = findProgramRecord(programRow.dataset.programId);
+    if (!program) return;
+    setupDraft = { id: program.id, name: program.name, weeks: program.weeks, days: structuredClone(program.template), makeActive: program.id === state.activeProgramId };
+    state.editing = true;
+    save();
+    render();
+    return;
+  }
+  if (programRow && e.target.dataset.act === 'use-program') {
+    showModal({
+      title: 'Use this program?',
+      body: 'Today will switch to this program and start its progress from Week 1.',
+      confirmText: 'Use Program',
+      onConfirm: () => {
+        setActiveProgram(programRow.dataset.programId, { resetProgress: true });
+        closeModal();
+        setState({ tab: 'today' });
+      }
+    });
+    return;
+  }
+  if (programRow && e.target.dataset.act === 'delete-program-library') {
+    deleteProgramRecord(programRow.dataset.programId);
     return;
   }
   if (e.target.id === 'reset-program') {
@@ -2452,6 +2587,39 @@ function removeLibraryExercise(id) {
   doRemove();
 }
 
+function deleteProgramRecord(id) {
+  const program = findProgramRecord(id);
+  if (!program) return;
+  const remaining = activeProgramLibrary().filter(p => p.id !== id);
+  const doDelete = () => {
+    program.archived = true;
+    if (state.activeProgramId === id) {
+      if (remaining.length) {
+        setActiveProgram(remaining[0].id, { resetProgress: true });
+      } else {
+        state.activeProgramId = null;
+        state.program = null;
+        state.active = null;
+        state.celebration = null;
+        state.currentRun = { startedAt: null, weekIndex: 0, completedDayIndices: [] };
+      }
+    }
+    state.programLibrary = state.programLibrary.filter(p => p.id !== id);
+    closeModal();
+    save();
+    render();
+  };
+  showModal({
+    title: 'Delete program?',
+    body: state.activeProgramId === id
+      ? 'This removes the active program from Settings. Workout history stays saved, but Today will switch to another saved program if one exists.'
+      : 'This removes the program from Settings. Workout history stays saved.',
+    confirmText: 'Delete',
+    danger: true,
+    onConfirm: doDelete
+  });
+}
+
 function saveSetup() {
   setupDraft.name = (setupDraft.name || '').trim() || 'My Program';
   // Validate: at least one day, each day has at least one exercise with a name
@@ -2483,18 +2651,32 @@ function saveSetup() {
   cleanDays.forEach(d => d.exercises.forEach(e => ensureExerciseInLibrary(e.name)));
 
   const weeks = Math.max(1, parseInt(setupDraft.weeks) || 1);
-  const wasEditing = state.editing;
-  state.program = { name: setupDraft.name, weeks, template: cleanDays };
-  state.editing = false;
-  if (!wasEditing) {
-    state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
-  } else {
-    // Cap weekIndex and completedDayIndices if program shrunk
-    state.currentRun.weekIndex = Math.min(state.currentRun.weekIndex, weeks);
-    state.currentRun.completedDayIndices = state.currentRun.completedDayIndices.filter(i => i < cleanDays.length);
+  const program = { name: setupDraft.name, weeks, template: cleanDays };
+  state.programLibrary = normalizeProgramLibrary(state);
+  const existing = setupDraft.id ? state.programLibrary.find(p => p.id === setupDraft.id) : null;
+  const record = makeProgramRecord(program, existing || { id: setupDraft.id || undefined });
+  const idx = state.programLibrary.findIndex(p => p.id === record.id);
+  if (idx >= 0) state.programLibrary[idx] = record;
+  else state.programLibrary.unshift(record);
+
+  const shouldActivate = setupDraft.makeActive || !state.program || state.activeProgramId === record.id;
+  if (shouldActivate) {
+    const sameProgram = state.activeProgramId === record.id;
+    state.activeProgramId = record.id;
+    state.program = programFromRecord(record);
+    state.active = null;
+    state.celebration = null;
+    if (!sameProgram) {
+      state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
+    } else {
+      state.currentRun.weekIndex = Math.min(state.currentRun.weekIndex, weeks);
+      state.currentRun.completedDayIndices = state.currentRun.completedDayIndices.filter(i => i < cleanDays.length);
+    }
   }
+
+  state.editing = false;
   setupDraft = null;
-  state.tab = 'today';
+  state.tab = shouldActivate ? 'today' : 'program';
   save();
   render();
 }
