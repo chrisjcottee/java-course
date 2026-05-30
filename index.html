@@ -761,6 +761,35 @@
   .program-summary .ex-line .nm { font-weight: 500; }
   .program-summary .ex-line .tgt { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
+  .library-tools {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .library-list {
+    margin-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .library-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .library-row .library-name { flex: 1; min-width: 0; font-weight: 500; }
+  .library-row .library-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .library-row.editing {
+    align-items: stretch;
+    background: var(--accent-dim);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    margin: 8px 0;
+    border-bottom: none;
+  }
+  .library-row.editing input { flex: 1; background: white; }
+
   .week-pip {
     width: 28px; height: 28px;
     border-radius: 50%;
@@ -855,7 +884,7 @@
 'use strict';
 
 /* ---------- State ---------- */
-const APP_VERSION = 'v14 · today recap';
+const APP_VERSION = 'v15 · exercise library';
 
 const EXERCISE_LIBRARY = [
   // Squat / quad
@@ -896,6 +925,7 @@ let saveErrorShown = false;
 const DEFAULT_STATE = {
   program: null,        // { name, weeks: 8, template: [{ name, exercises: [{ name, sets, reps }] }] }
   sessions: [],         // [{ date, weekIndex, dayIndex, dayName, durationMs, exercises: [{ name, sets: [{ weight, reps, ts }], skipped }] }]
+  exerciseLibrary: makeInitialExerciseLibrary(),
   active: null,         // { weekIndex, dayIndex, dayName, startedAt, exercises: [...] }
   stats: { xp: 0, streak: 0, lastDayCompleteDate: null },
   currentRun: { startedAt: null, weekIndex: 0, completedDayIndices: [] },
@@ -907,7 +937,30 @@ let state = load();
 let setupDraft = null;  // { name, weeks, days: [...] } while editing in setup screen
 let editingSet = null;  // { exIdx, setIdx } when a logged set is being edited
 let expandedDayIdx = null;  // index of compact day-card whose detail is expanded on Today
+let exerciseLibrarySearch = '';
+let editingExerciseLibraryId = null;
 let modal = null;
+
+function slugifyExerciseName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'exercise';
+}
+
+function makeExerciseLibraryEntry(name, builtIn = false) {
+  const clean = String(name || '').trim();
+  return {
+    id: builtIn ? `builtin-${slugifyExerciseName(clean)}` : `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: clean,
+    builtIn,
+    archived: false
+  };
+}
+
+function makeInitialExerciseLibrary() {
+  return EXERCISE_LIBRARY.map(name => makeExerciseLibraryEntry(name, true));
+}
 
 function load() {
   try {
@@ -918,6 +971,7 @@ function load() {
 }
 
 function migrate(s) {
+  s.exerciseLibrary = normalizeExerciseLibrary(s);
   if (!s.program) return s;
   // Old program shape: { name, days: [...] } → { name, weeks: 1, template: [...] }
   if (s.program.days && !s.program.template) {
@@ -947,7 +1001,39 @@ function migrate(s) {
   if (Array.isArray(s.sessions)) {
     s.sessions.forEach(sess => { if (sess.weekIndex == null) sess.weekIndex = 0; });
   }
+  s.exerciseLibrary = normalizeExerciseLibrary(s);
   return s;
+}
+
+function normalizeExerciseLibrary(s) {
+  const byName = new Map();
+  const add = (entry, opts = {}) => {
+    const name = String(entry && entry.name || '').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (byName.has(key)) {
+      const existing = byName.get(key);
+      existing.builtIn = existing.builtIn || !!entry.builtIn;
+      if (!opts.keepArchive) existing.archived = existing.archived && !!entry.archived;
+      return;
+    }
+    byName.set(key, {
+      id: entry.id || (entry.builtIn ? `builtin-${slugifyExerciseName(name)}` : `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+      name,
+      builtIn: !!entry.builtIn,
+      archived: !!entry.archived
+    });
+  };
+
+  if (Array.isArray(s.exerciseLibrary)) s.exerciseLibrary.forEach(add);
+  makeInitialExerciseLibrary().forEach(entry => add(entry, { keepArchive: true }));
+  if (s.program && Array.isArray(s.program.template)) {
+    s.program.template.forEach(d => d.exercises.forEach(e => add(makeExerciseLibraryEntry(e.name, false), { keepArchive: true })));
+  }
+  if (Array.isArray(s.sessions)) {
+    s.sessions.forEach(sess => sess.exercises.forEach(e => add(makeExerciseLibraryEntry(e.name, false), { keepArchive: true })));
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function save() {
@@ -1258,19 +1344,45 @@ function exEditorHtml(ex, j) {
 };
 
 function exerciseNameSuggestions() {
-  // lowercase key → display name. Library wins casing; user-entered names from
-  // sessions/template fill in anything the library doesn't already cover.
-  const map = new Map();
-  EXERCISE_LIBRARY.forEach(n => map.set(n.toLowerCase(), n));
-  state.sessions.forEach(s => s.exercises.forEach(e => {
-    if (e.name && !map.has(e.name.toLowerCase())) map.set(e.name.toLowerCase(), e.name);
-  }));
-  if (state.program) {
-    state.program.template.forEach(d => d.exercises.forEach(e => {
-      if (e.name && !map.has(e.name.toLowerCase())) map.set(e.name.toLowerCase(), e.name);
-    }));
+  return activeExerciseLibrary().map(e => e.name);
+}
+
+function activeExerciseLibrary() {
+  state.exerciseLibrary = normalizeExerciseLibrary(state);
+  return state.exerciseLibrary
+    .filter(e => !e.archived)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function ensureExerciseInLibrary(name) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  state.exerciseLibrary = normalizeExerciseLibrary(state);
+  const existing = state.exerciseLibrary.find(e => e.name.toLowerCase() === clean.toLowerCase());
+  if (existing) {
+    existing.archived = false;
+    return existing;
   }
-  return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+  const entry = makeExerciseLibraryEntry(clean, false);
+  state.exerciseLibrary.push(entry);
+  state.exerciseLibrary.sort((a, b) => a.name.localeCompare(b.name));
+  return entry;
+}
+
+function exerciseUsedInCurrentProgram(name) {
+  if (!state.program) return false;
+  const key = String(name || '').trim().toLowerCase();
+  return state.program.template.some(d => d.exercises.some(e => e.name.toLowerCase() === key));
+}
+
+function updateProgramExerciseName(oldName, newName) {
+  if (!state.program) return;
+  const oldKey = String(oldName || '').trim().toLowerCase();
+  state.program.template.forEach(d => {
+    d.exercises.forEach(e => {
+      if (e.name.toLowerCase() === oldKey) e.name = newName;
+    });
+  });
 }
 
 Views.today = function() {
@@ -1475,10 +1587,56 @@ Views.program = function() {
       </div>
     </div>
 
+    <h2>Exercise Library</h2>
+    <div class="card">
+      ${exerciseLibraryHtml()}
+    </div>
+
     <h2>Danger zone</h2>
     <button class="btn ghost" id="reset-program" style="color: var(--danger);">Reset Program & History</button>
   `;
 };
+
+function exerciseLibraryHtml() {
+  const q = exerciseLibrarySearch.trim().toLowerCase();
+  const exercises = activeExerciseLibrary().filter(e => !q || e.name.toLowerCase().includes(q));
+  return `
+    <label class="field">
+      <span class="lbl">Search Exercises</span>
+      <input type="text" id="exercise-library-search" value="${esc(exerciseLibrarySearch)}" placeholder="Search exercise library">
+    </label>
+    <div class="library-tools">
+      <input type="text" id="new-exercise-name" placeholder="New exercise name">
+      <button class="btn secondary small" id="add-library-exercise">Add</button>
+    </div>
+    <div class="subtle">${activeExerciseLibrary().length} exercise${activeExerciseLibrary().length === 1 ? '' : 's'} available</div>
+    <div class="library-list">
+      ${exercises.length ? exercises.map(exerciseLibraryRowHtml).join('') : `<div class="empty" style="padding:24px 12px;">No matching exercises.</div>`}
+    </div>
+  `;
+}
+
+function exerciseLibraryRowHtml(ex) {
+  if (editingExerciseLibraryId === ex.id) {
+    return `
+      <div class="library-row editing" data-library-ex-id="${esc(ex.id)}">
+        <input type="text" class="library-edit-name" value="${esc(ex.name)}">
+        <button class="btn small" data-act="save-library-ex">Save</button>
+        <button class="btn secondary small" data-act="cancel-library-ex">Cancel</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="library-row" data-library-ex-id="${esc(ex.id)}">
+      <div class="library-name">${esc(ex.name)}</div>
+      ${exerciseUsedInCurrentProgram(ex.name) ? `<span class="badge success">In program</span>` : ''}
+      <div class="library-actions">
+        <button class="btn secondary small" data-act="edit-library-ex">Edit</button>
+        <button class="btn ghost small" data-act="remove-library-ex" style="color: var(--danger);">Remove</button>
+      </div>
+    </div>
+  `;
+}
 
 Views.history = function() {
   if (!state.sessions.length) {
@@ -1890,6 +2048,29 @@ function onClick(e) {
     });
     return;
   }
+  if (e.target.id === 'add-library-exercise') {
+    addLibraryExercise();
+    return;
+  }
+  const libraryRow = e.target.closest && e.target.closest('[data-library-ex-id]');
+  if (libraryRow && e.target.dataset.act === 'edit-library-ex') {
+    editingExerciseLibraryId = libraryRow.dataset.libraryExId;
+    render();
+    return;
+  }
+  if (libraryRow && e.target.dataset.act === 'cancel-library-ex') {
+    editingExerciseLibraryId = null;
+    render();
+    return;
+  }
+  if (libraryRow && e.target.dataset.act === 'save-library-ex') {
+    saveLibraryExercise(libraryRow);
+    return;
+  }
+  if (libraryRow && e.target.dataset.act === 'remove-library-ex') {
+    removeLibraryExercise(libraryRow.dataset.libraryExId);
+    return;
+  }
 
   // Workout
   if (e.target.id === 'finish-workout') {
@@ -1963,6 +2144,22 @@ function onClick(e) {
 }
 
 function onInput(e) {
+  if (e.target.id === 'exercise-library-search') {
+    exerciseLibrarySearch = e.target.value;
+    const pos = e.target.selectionStart || exerciseLibrarySearch.length;
+    const scrollY = window.scrollY || 0;
+    render();
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+      const input = document.getElementById('exercise-library-search');
+      if (input) {
+        input.focus();
+        try { input.setSelectionRange(pos, pos); } catch (_) {}
+      }
+    });
+    return;
+  }
+
   // Setup live edits
   if (e.target.id === 'prog-name') {
     setupDraft.name = e.target.value;
@@ -1993,6 +2190,17 @@ function onInput(e) {
 
 function onKeydown(e) {
   if (e.key === 'Enter') {
+    if (e.target.id === 'new-exercise-name') {
+      e.preventDefault();
+      addLibraryExercise();
+      return;
+    }
+    const libraryEditRow = e.target.closest && e.target.closest('.library-row.editing');
+    if (libraryEditRow) {
+      e.preventDefault();
+      saveLibraryExercise(libraryEditRow);
+      return;
+    }
     const editRow = e.target.closest && e.target.closest('.set-row.editing');
     if (editRow) {
       e.preventDefault();
@@ -2072,6 +2280,90 @@ function clampStepper(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+function findLibraryExercise(id) {
+  state.exerciseLibrary = normalizeExerciseLibrary(state);
+  return state.exerciseLibrary.find(e => e.id === id);
+}
+
+function addLibraryExercise() {
+  const input = document.getElementById('new-exercise-name');
+  const name = input ? input.value.trim() : '';
+  if (!name) {
+    showModal({
+      title: 'Name required',
+      body: 'Enter an exercise name first.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+  ensureExerciseInLibrary(name);
+  exerciseLibrarySearch = '';
+  save();
+  render();
+}
+
+function saveLibraryExercise(row) {
+  const ex = findLibraryExercise(row.dataset.libraryExId);
+  if (!ex) return;
+  const input = row.querySelector('.library-edit-name');
+  const nextName = input ? input.value.trim() : '';
+  if (!nextName) {
+    showModal({
+      title: 'Name required',
+      body: 'Exercise names cannot be blank.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+  const duplicate = state.exerciseLibrary.find(e =>
+    e.id !== ex.id && !e.archived && e.name.toLowerCase() === nextName.toLowerCase()
+  );
+  if (duplicate) {
+    showModal({
+      title: 'Already in library',
+      body: 'An active exercise already uses that name.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+  const oldName = ex.name;
+  ex.name = nextName;
+  updateProgramExerciseName(oldName, nextName);
+  editingExerciseLibraryId = null;
+  state.exerciseLibrary.sort((a, b) => a.name.localeCompare(b.name));
+  save();
+  render();
+}
+
+function removeLibraryExercise(id) {
+  const ex = findLibraryExercise(id);
+  if (!ex) return;
+  const doRemove = () => {
+    ex.archived = true;
+    editingExerciseLibraryId = null;
+    closeModal();
+    save();
+    render();
+  };
+  if (exerciseUsedInCurrentProgram(ex.name)) {
+    showModal({
+      title: 'Remove from library?',
+      body: 'This exercise stays in your current program and workout history, but it will no longer appear as a new selection.',
+      confirmText: 'Remove',
+      danger: true,
+      onConfirm: doRemove
+    });
+    return;
+  }
+  doRemove();
+}
+
 function saveSetup() {
   setupDraft.name = (setupDraft.name || '').trim() || 'My Program';
   // Validate: at least one day, each day has at least one exercise with a name
@@ -2100,6 +2392,7 @@ function saveSetup() {
   }
 
   cleanDays.forEach((d, i) => { if (!d.name) d.name = 'Day ' + (i + 1); });
+  cleanDays.forEach(d => d.exercises.forEach(e => ensureExerciseInLibrary(e.name)));
 
   const weeks = Math.max(1, parseInt(setupDraft.weeks) || 1);
   const wasEditing = state.editing;
