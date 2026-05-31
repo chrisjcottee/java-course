@@ -14,6 +14,12 @@
 
 Open `weight-tracker/index.html` in any browser.
 
+### Code layout
+
+- `index.html` contains the app shell, tab bar, stylesheet link, and script loading order.
+- `styles.css` contains the app styling.
+- `js/` contains the no-build JavaScript modules, grouped by state, helpers, program/workout logic, events, and views.
+
 ### Install on your phone
 
 1. Enable GitHub Pages: repo **Settings → Pages →** *Deploy from a branch* → **master**, **/(root)**.

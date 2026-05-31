@@ -1,0 +1,582 @@
+/* ---------- Event handling ---------- */
+function bindGlobalEvents() {
+  document.addEventListener('click', onClick);
+  document.addEventListener('input', onInput);
+  document.addEventListener('keydown', onKeydown);
+  document.addEventListener('focusin', onFocusIn);
+}
+
+function onFocusIn(e) {
+  // Select the prefilled weight on focus so it can be overtyped immediately.
+  if (e.target.classList && e.target.classList.contains('set-w') && e.target.value) {
+    setTimeout(() => { try { e.target.select(); } catch (_) {} }, 0);
+  }
+}
+
+function onClick(e) {
+  const t = e.target.closest('[data-tab]');
+  if (t) {
+    setState({ tab: t.dataset.tab });
+    return;
+  }
+
+  // Setup screen
+  if (e.target.classList.contains('step-btn')) {
+    if (e.target.closest('.set-row')) {
+      handleRepsStepperClick(e.target);
+    } else {
+      handleStepperClick(e.target);
+    }
+    return;
+  }
+  if (e.target.id === 'add-day') {
+    setupDraft.days.push(makeDay());
+    rerenderSetup();
+    return;
+  }
+  if (e.target.dataset.act === 'rm-day') {
+    const di = +e.target.closest('[data-day]').dataset.day;
+    setupDraft.days.splice(di, 1);
+    rerenderSetup();
+    return;
+  }
+  if (e.target.dataset.act === 'add-ex') {
+    const di = +e.target.closest('[data-day]').dataset.day;
+    setupDraft.days[di].exercises.push(makeEx());
+    rerenderSetup();
+    return;
+  }
+  if (e.target.dataset.act === 'rm-ex') {
+    const di = +e.target.closest('[data-day]').dataset.day;
+    const ej = +e.target.closest('[data-ex]').dataset.ex;
+    setupDraft.days[di].exercises.splice(ej, 1);
+    if (setupDraft.days[di].exercises.length === 0) {
+      setupDraft.days[di].exercises.push(makeEx());
+    }
+    rerenderSetup();
+    return;
+  }
+  if (e.target.id === 'save-program') {
+    saveSetup();
+    return;
+  }
+  if (e.target.id === 'cancel-setup') {
+    setupDraft = null;
+    state.editing = false;
+    setState({ tab: 'program' });
+    return;
+  }
+
+  // Today
+  const weekEl = e.target.closest && e.target.closest('[data-select-week]');
+  if (weekEl) {
+    selectedWeekIndex = clampWeekIndex(weekEl.dataset.selectWeek);
+    expandedDayKey = defaultExpandedDayKey(selectedWeekIndex);
+    render();
+    return;
+  }
+  if (e.target.dataset.startDay != null) {
+    startWorkout(parseInt(e.target.dataset.startDay, 10));
+    return;
+  }
+  const expandEl = e.target.closest && e.target.closest('[data-expand-day-key]');
+  if (expandEl && !e.target.closest('[data-start-day]')) {
+    const key = expandEl.dataset.expandDayKey;
+    expandedDayKey = (expandedDayKey === key) ? null : key;
+    render();
+    return;
+  }
+  if (e.target.id === 'restart-program') {
+    showModal({
+      title: 'Start program over?',
+      body: 'Your week progress will reset to Week 1. History stays intact.',
+      confirmText: 'Restart',
+      onConfirm: () => {
+        state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
+        selectedWeekIndex = null;
+        expandedDayKey = null;
+        closeModal();
+        setState({});
+      }
+    });
+    return;
+  }
+
+  // Program tab
+  if (e.target.id === 'add-program') {
+    setupDraft = { id: null, name: 'New Program', weeks: 8, days: [makeDay()], makeActive: true };
+    state.editing = true;
+    save();
+    render();
+    return;
+  }
+  if (e.target.id === 'edit-program') {
+    const active = findProgramRecord(state.activeProgramId);
+    const program = active || makeProgramRecord(state.program || { name: 'My Program', weeks: 8, template: [makeDay()] }, { id: state.activeProgramId || undefined });
+    setupDraft = { id: program.id, name: program.name, weeks: program.weeks, days: structuredClone(program.template), makeActive: true };
+    state.editing = true;
+    save();
+    render();
+    return;
+  }
+  const programRow = e.target.closest && e.target.closest('[data-program-id]');
+  if (programRow && e.target.dataset.act === 'edit-program-library') {
+    const program = findProgramRecord(programRow.dataset.programId);
+    if (!program) return;
+    setupDraft = { id: program.id, name: program.name, weeks: program.weeks, days: structuredClone(program.template), makeActive: program.id === state.activeProgramId };
+    state.editing = true;
+    save();
+    render();
+    return;
+  }
+  if (programRow && e.target.dataset.act === 'use-program') {
+    showModal({
+      title: 'Use this program?',
+      body: 'Today will switch to this program and start its progress from Week 1.',
+      confirmText: 'Use Program',
+      onConfirm: () => {
+        setActiveProgram(programRow.dataset.programId, { resetProgress: true });
+        closeModal();
+        setState({ tab: 'today' });
+      }
+    });
+    return;
+  }
+  if (programRow && e.target.dataset.act === 'delete-program-library') {
+    deleteProgramRecord(programRow.dataset.programId);
+    return;
+  }
+  if (e.target.id === 'reset-program') {
+    showModal({
+      title: 'Reset everything?',
+      body: 'This deletes your program, all logged workouts, XP, and streak. Cannot be undone.',
+      confirmText: 'Delete All',
+      danger: true,
+      onConfirm: () => {
+        state = structuredClone(DEFAULT_STATE);
+        setupDraft = null;
+        selectedWeekIndex = null;
+        expandedDayKey = null;
+        closeModal();
+        setState({});
+      }
+    });
+    return;
+  }
+  if (e.target.id === 'add-library-exercise') {
+    addLibraryExercise();
+    return;
+  }
+  const libraryRow = e.target.closest && e.target.closest('[data-library-ex-id]');
+  if (libraryRow && e.target.dataset.act === 'edit-library-ex') {
+    editingExerciseLibraryId = libraryRow.dataset.libraryExId;
+    render();
+    return;
+  }
+  if (libraryRow && e.target.dataset.act === 'cancel-library-ex') {
+    editingExerciseLibraryId = null;
+    render();
+    return;
+  }
+  if (libraryRow && e.target.dataset.act === 'save-library-ex') {
+    saveLibraryExercise(libraryRow);
+    return;
+  }
+  if (libraryRow && e.target.dataset.act === 'remove-library-ex') {
+    removeLibraryExercise(libraryRow.dataset.libraryExId);
+    return;
+  }
+
+  // Workout
+  if (e.target.id === 'finish-workout') {
+    if (withUnloggedSetGuard(endWorkoutFlow, 'Finish without set')) return;
+    endWorkoutFlow();
+    return;
+  }
+  if (e.target.dataset.act === 'skip-ex') {
+    const exIdx = parseInt(e.target.dataset.exIdx, 10);
+    if (withUnloggedSetGuard(() => skipExercise(exIdx), 'Skip without set')) return;
+    skipExercise(exIdx);
+    return;
+  }
+  const editEl = e.target.closest && e.target.closest('[data-edit-set]');
+  if (editEl) {
+    const [exIdx, setIdx] = editEl.dataset.editSet.split(',').map(Number);
+    editingSet = { exIdx, setIdx };
+    render();
+    return;
+  }
+  if (e.target.dataset.act === 'save-edit') {
+    saveEditedSet(e.target.closest('.set-row'));
+    return;
+  }
+  if (e.target.dataset.act === 'cancel-edit') {
+    editingSet = null;
+    render();
+    return;
+  }
+  if (e.target.classList.contains('log-btn')) {
+    logCurrentSet(e.target.closest('.set-row'));
+    return;
+  }
+  if (e.target.classList.contains('dot') && e.target.dataset.jump != null) {
+    const idx = +e.target.dataset.jump;
+    const card = document.querySelector(`[data-ex-idx="${idx}"]`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (e.target.id === 'celebrate-continue') {
+    const c = state.celebration;
+    if (c && c.type === 'workout' && c.fullyComplete) {
+      selectedWeekIndex = c.weekComplete || c.programComplete ? currentWeekIndex() : clampWeekIndex(c.weekIndex);
+      expandedDayKey = c.weekComplete || c.programComplete
+        ? defaultExpandedDayKey(selectedWeekIndex)
+        : dayKey(selectedWeekIndex, c.dayIndex);
+    }
+    state.celebration = null;
+    save();
+    render();
+    return;
+  }
+
+  // Modal
+  if (e.target.classList.contains('modal-backdrop')) {
+    closeModal();
+    return;
+  }
+  if (e.target.id === 'modal-cancel') {
+    closeModal();
+    return;
+  }
+  if (e.target.id === 'modal-confirm') {
+    const fn = modal && modal.onConfirm;
+    if (fn) fn();
+    return;
+  }
+  if (e.target.id === 'modal-extra') {
+    const fn = modal && modal.extraAction && modal.extraAction.onClick;
+    if (fn) fn();
+    return;
+  }
+}
+
+function onInput(e) {
+  if (e.target.id === 'exercise-library-search') {
+    exerciseLibrarySearch = e.target.value;
+    const pos = e.target.selectionStart || exerciseLibrarySearch.length;
+    const scrollY = window.scrollY || 0;
+    render();
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+      const input = document.getElementById('exercise-library-search');
+      if (input) {
+        input.focus();
+        try { input.setSelectionRange(pos, pos); } catch (_) {}
+      }
+    });
+    return;
+  }
+
+  // Setup live edits
+  if (e.target.id === 'prog-name') {
+    setupDraft.name = e.target.value;
+    return;
+  }
+  if (e.target.classList.contains('day-name')) {
+    const di = +e.target.closest('[data-day]').dataset.day;
+    setupDraft.days[di].name = e.target.value;
+    return;
+  }
+  if (e.target.matches('.ex-editor input[data-f]')) {
+    const di = +e.target.closest('[data-day]').dataset.day;
+    const ej = +e.target.closest('[data-ex]').dataset.ex;
+    const field = e.target.dataset.f;
+    const val = field === 'name' ? e.target.value : parseFloat(e.target.value) || 0;
+    setupDraft.days[di].exercises[ej][field] = val;
+    return;
+  }
+
+  // Workout set inputs
+  if (e.target.classList.contains('set-w') || e.target.classList.contains('set-r')) {
+    const row = e.target.closest('.set-row');
+    if (row) row.dataset.dirty = '1';
+    updateLogBtn(row);
+    return;
+  }
+}
+
+function onKeydown(e) {
+  if (e.key === 'Enter') {
+    if (e.target.id === 'new-exercise-name') {
+      e.preventDefault();
+      addLibraryExercise();
+      return;
+    }
+    const libraryEditRow = e.target.closest && e.target.closest('.library-row.editing');
+    if (libraryEditRow) {
+      e.preventDefault();
+      saveLibraryExercise(libraryEditRow);
+      return;
+    }
+    const editRow = e.target.closest && e.target.closest('.set-row.editing');
+    if (editRow) {
+      e.preventDefault();
+      saveEditedSet(editRow);
+      return;
+    }
+    const row = e.target.closest && e.target.closest('.set-row.active');
+    if (row) {
+      e.preventDefault();
+      const btn = row.querySelector('.log-btn');
+      if (btn && !btn.disabled) logCurrentSet(row);
+    }
+  }
+  if (e.key === 'Escape') {
+    if (editingSet) {
+      editingSet = null;
+      render();
+      return;
+    }
+    if (modal) closeModal();
+  }
+}
+
+function updateLogBtn(row) {
+  if (!row) return;
+  const w = parseFloat(row.querySelector('.set-w').value);
+  const r = parseInt(row.querySelector('.set-r').value, 10);
+  const ok = !isNaN(w) && w >= 0 && !isNaN(r) && r > 0;
+  row.querySelector('.log-btn').disabled = !ok;
+}
+
+function rerenderSetup() {
+  const app = $('#app');
+  app.innerHTML = Views.setup();
+}
+
+function handleRepsStepperClick(btn) {
+  const row = btn.closest('.set-row');
+  if (!row) return;
+  const hidden = row.querySelector('.set-r');
+  const display = row.querySelector('.reps-stepper .step-val');
+  if (!hidden || !display) return;
+  const delta = parseInt(btn.dataset.step, 10);
+  const cur = parseInt(hidden.value, 10) || 0;
+  const next = clampStepper(cur + delta, 1, 100);
+  hidden.value = next;
+  display.textContent = next;
+  row.dataset.dirty = '1';
+  updateLogBtn(row);
+}
+
+function handleStepperClick(btn) {
+  const delta = parseInt(btn.dataset.step, 10);
+  const stepper = btn.closest('.stepper');
+  if (!stepper) return;
+  // Program-level stepper (weeks)
+  if (stepper.dataset.stepperTarget === 'weeks') {
+    setupDraft.weeks = clampStepper(setupDraft.weeks + delta, 1, 52);
+    rerenderSetup();
+    return;
+  }
+  // Per-exercise stepper (sets or reps)
+  const field = stepper.dataset.f;
+  if (!field) return;
+  const dayEl = btn.closest('[data-day]');
+  const exEl = btn.closest('[data-ex]');
+  if (!dayEl || !exEl) return;
+  const di = +dayEl.dataset.day;
+  const ei = +exEl.dataset.ex;
+  const max = field === 'sets' ? 20 : 100;
+  const ex = setupDraft.days[di].exercises[ei];
+  ex[field] = clampStepper((ex[field] || 1) + delta, 1, max);
+  rerenderSetup();
+}
+
+function clampStepper(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function findLibraryExercise(id) {
+  state.exerciseLibrary = normalizeExerciseLibrary(state);
+  return state.exerciseLibrary.find(e => e.id === id);
+}
+
+function addLibraryExercise() {
+  const input = document.getElementById('new-exercise-name');
+  const name = input ? input.value.trim() : '';
+  if (!name) {
+    showModal({
+      title: 'Name required',
+      body: 'Enter an exercise name first.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+  ensureExerciseInLibrary(name);
+  exerciseLibrarySearch = '';
+  save();
+  render();
+}
+
+function saveLibraryExercise(row) {
+  const ex = findLibraryExercise(row.dataset.libraryExId);
+  if (!ex) return;
+  const input = row.querySelector('.library-edit-name');
+  const nextName = input ? input.value.trim() : '';
+  if (!nextName) {
+    showModal({
+      title: 'Name required',
+      body: 'Exercise names cannot be blank.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+  const duplicate = state.exerciseLibrary.find(e =>
+    e.id !== ex.id && !e.archived && e.name.toLowerCase() === nextName.toLowerCase()
+  );
+  if (duplicate) {
+    showModal({
+      title: 'Already in library',
+      body: 'An active exercise already uses that name.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+  const oldName = ex.name;
+  ex.name = nextName;
+  updateProgramExerciseName(oldName, nextName);
+  editingExerciseLibraryId = null;
+  state.exerciseLibrary.sort((a, b) => a.name.localeCompare(b.name));
+  save();
+  render();
+}
+
+function removeLibraryExercise(id) {
+  const ex = findLibraryExercise(id);
+  if (!ex) return;
+  const doRemove = () => {
+    ex.archived = true;
+    editingExerciseLibraryId = null;
+    closeModal();
+    save();
+    render();
+  };
+  if (exerciseUsedInCurrentProgram(ex.name)) {
+    showModal({
+      title: 'Remove from library?',
+      body: 'This exercise stays in your current program and workout history, but it will no longer appear as a new selection.',
+      confirmText: 'Remove',
+      danger: true,
+      onConfirm: doRemove
+    });
+    return;
+  }
+  doRemove();
+}
+
+function deleteProgramRecord(id) {
+  const program = findProgramRecord(id);
+  if (!program) return;
+  const remaining = activeProgramLibrary().filter(p => p.id !== id);
+  const doDelete = () => {
+    program.archived = true;
+    if (state.activeProgramId === id) {
+      if (remaining.length) {
+        setActiveProgram(remaining[0].id, { resetProgress: true });
+      } else {
+        state.activeProgramId = null;
+        state.program = null;
+        state.active = null;
+        state.celebration = null;
+        state.currentRun = { startedAt: null, weekIndex: 0, completedDayIndices: [] };
+        selectedWeekIndex = null;
+        expandedDayKey = null;
+      }
+    }
+    state.programLibrary = state.programLibrary.filter(p => p.id !== id);
+    closeModal();
+    save();
+    render();
+  };
+  showModal({
+    title: 'Delete program?',
+    body: state.activeProgramId === id
+      ? 'This removes the active program from Settings. Workout history stays saved, but Today will switch to another saved program if one exists.'
+      : 'This removes the program from Settings. Workout history stays saved.',
+    confirmText: 'Delete',
+    danger: true,
+    onConfirm: doDelete
+  });
+}
+
+function saveSetup() {
+  setupDraft.name = (setupDraft.name || '').trim() || 'My Program';
+  // Validate: at least one day, each day has at least one exercise with a name
+  const cleanDays = setupDraft.days
+    .map(d => ({
+      name: (d.name || '').trim(),
+      exercises: d.exercises
+        .filter(e => (e.name || '').trim())
+        .map(e => ({
+          name: e.name.trim(),
+          sets: Math.max(1, parseInt(e.sets) || 1),
+          reps: Math.max(1, parseInt(e.reps) || 1)
+        }))
+    }))
+    .filter(d => d.exercises.length > 0);
+
+  if (!cleanDays.length) {
+    showModal({
+      title: 'Add an exercise',
+      body: 'Your program needs at least one day with at least one exercise.',
+      confirmText: 'OK',
+      hideCancel: true,
+      onConfirm: closeModal
+    });
+    return;
+  }
+
+  cleanDays.forEach((d, i) => { if (!d.name) d.name = 'Day ' + (i + 1); });
+  cleanDays.forEach(d => d.exercises.forEach(e => ensureExerciseInLibrary(e.name)));
+
+  const weeks = Math.max(1, parseInt(setupDraft.weeks) || 1);
+  const program = { name: setupDraft.name, weeks, template: cleanDays };
+  state.programLibrary = normalizeProgramLibrary(state);
+  const existing = setupDraft.id ? state.programLibrary.find(p => p.id === setupDraft.id) : null;
+  const record = makeProgramRecord(program, existing || { id: setupDraft.id || undefined });
+  const idx = state.programLibrary.findIndex(p => p.id === record.id);
+  if (idx >= 0) state.programLibrary[idx] = record;
+  else state.programLibrary.unshift(record);
+
+  const shouldActivate = setupDraft.makeActive || !state.program || state.activeProgramId === record.id;
+  if (shouldActivate) {
+    const sameProgram = state.activeProgramId === record.id;
+    state.activeProgramId = record.id;
+    state.program = programFromRecord(record);
+    state.active = null;
+    state.celebration = null;
+    selectedWeekIndex = null;
+    expandedDayKey = null;
+    if (!sameProgram) {
+      state.currentRun = { startedAt: Date.now(), weekIndex: 0, completedDayIndices: [] };
+    } else {
+      state.currentRun.weekIndex = Math.min(state.currentRun.weekIndex, weeks);
+      state.currentRun.completedDayIndices = state.currentRun.completedDayIndices.filter(i => i < cleanDays.length);
+    }
+  }
+
+  state.editing = false;
+  setupDraft = null;
+  state.tab = shouldActivate ? 'today' : 'program';
+  save();
+  render();
+}
+
